@@ -1,0 +1,4 @@
+.spec-state/
+.worktrees/
+.claude/settings.local.json
+.codex/
