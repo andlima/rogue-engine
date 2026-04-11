@@ -10,10 +10,16 @@ import { evaluate } from '../expressions/evaluator.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function clampMeasurement(value, measurementDef) {
+function clampMeasurement(value, measurementDef, entity) {
   let v = value;
   if (measurementDef.min != null) v = Math.max(v, measurementDef.min);
-  if (typeof measurementDef.max === 'number') v = Math.min(v, measurementDef.max);
+  if (typeof measurementDef.max === 'number') {
+    v = Math.min(v, measurementDef.max);
+  } else if (typeof measurementDef.max === 'string' && entity) {
+    // max can be a measurement ID reference or expression; resolve from entity
+    const maxVal = entity.measurements?.[measurementDef.max];
+    if (typeof maxVal === 'number') v = Math.min(v, maxVal);
+  }
   return v;
 }
 
@@ -83,18 +89,16 @@ function handleApply(state, effect, scope) {
   const currentVal = entity.measurements[mId] ?? 0;
   const mDef = state.definition._index.measurements[mId];
   let newVal = currentVal + delta;
-  if (mDef) newVal = clampMeasurement(newVal, mDef);
+  if (mDef) newVal = clampMeasurement(newVal, mDef, entity);
 
   const newEntity = {
     ...entity,
     measurements: { ...entity.measurements, [mId]: newVal },
   };
 
-  // Expose computed delta in scope for message templates
-  scope._lastDelta = Math.abs(delta);
-  scope._lastValue = newVal;
-
-  return update(newEntity);
+  const newState = update(newEntity);
+  // Thread computed delta through state for message template interpolation
+  return { ...newState, _effectContext: { delta: Math.abs(delta), value: newVal } };
 }
 
 function handleSet(state, effect, scope) {
@@ -103,7 +107,7 @@ function handleSet(state, effect, scope) {
   const mId = effect.measurement;
   const mDef = state.definition._index.measurements[mId];
   let newVal = value;
-  if (mDef) newVal = clampMeasurement(newVal, mDef);
+  if (mDef) newVal = clampMeasurement(newVal, mDef, entity);
 
   const newEntity = {
     ...entity,
@@ -124,6 +128,7 @@ function handleMove(state, effect, scope) {
   const nx = entity.x + delta.dx;
   const ny = entity.y + delta.dy;
   const { map } = state.definition;
+  if (!map) return state;
 
   if (nx < 0 || nx >= map.width || ny < 0 || ny >= map.height) return state;
   if (map.tiles[ny][nx] === '#') return state;
@@ -227,8 +232,8 @@ function handleMessage(state, effect, scope) {
     const parts = path.trim().split('.');
     // Check scope for special keys first
     if (parts.length === 1) {
-      if (parts[0] === 'damage' || parts[0] === 'delta') return scope._lastDelta ?? 0;
-      if (parts[0] === 'value') return scope._lastValue ?? 0;
+      if (parts[0] === 'damage' || parts[0] === 'delta') return state._effectContext?.delta ?? 0;
+      if (parts[0] === 'value') return state._effectContext?.value ?? 0;
       if (scope[parts[0]] != null) return scope[parts[0]];
     }
     // Resolve dotted path in scope

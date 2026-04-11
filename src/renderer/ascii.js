@@ -107,9 +107,14 @@ export function getBeingAppearance(beingId, definition, state) {
 
   // Apply status rules (conditional overrides)
   if (definition.rendering?.status_rules && state) {
+    // Find the actual being entity to evaluate status rules against
+    const beingEntity = state.entities.find(e => e.id === beingId && e.kind === 'being');
+    const beingView = beingEntity
+      ? { ...beingEntity, ...beingEntity.measurements }
+      : state.player;
     const scope = {
-      actor: state.player,
-      self: state.player,
+      actor: beingView,
+      self: beingView,
       player: state.player,
       state: { level: state.level, turn: state.turn },
     };

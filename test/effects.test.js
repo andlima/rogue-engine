@@ -208,7 +208,7 @@ describe('effect: message', () => {
   it('pushes a templated message to the log', () => {
     const state = makeState();
     const scope = makeScope(state);
-    scope._lastDelta = 5;
+    state._effectContext = { delta: 5, value: 0 };
     const next = applyEffect(state, {
       type: 'message', text: '{actor.name} deals {damage} damage!',
     }, scope);

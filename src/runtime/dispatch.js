@@ -104,7 +104,8 @@ function runAiActions(state) {
   if (!aiActions || aiActions.length === 0) return state;
 
   let current = state;
-  for (const entity of current.entities) {
+  for (let i = 0; i < current.entities.length; i++) {
+    const entity = current.entities[i];
     if (entity.kind !== 'being') continue;
     if (current.terminal) break;
 
