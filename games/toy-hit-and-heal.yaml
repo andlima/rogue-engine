@@ -1,0 +1,119 @@
+meta:
+  id: toy-hit-and-heal
+  name: Toy Hit and Heal
+  version: "0.1.0"
+  description: Two beings — a puncher and a healer — with three actions for e2e testing
+  player_archetype: puncher
+
+measurements:
+  - id: hp
+    label: Hit Points
+    min: 0
+    max: 20
+    initial: 20
+  - id: mp
+    label: Mana
+    min: 0
+    max: 10
+    initial: 5
+
+beings:
+  - id: puncher
+    label: Puncher
+    glyph: "@"
+    color: white
+    measurements:
+      hp: 20
+      mp: 5
+    tags: [player]
+
+  - id: healer
+    label: Healer
+    glyph: "h"
+    color: green
+    measurements:
+      hp: 10
+      mp: 10
+    tags: [npc]
+
+items: []
+
+map:
+  width: 5
+  height: 5
+  tiles:
+    - "#####"
+    - "#.@.#"
+    - "#...#"
+    - "#...#"
+    - "#####"
+
+actions:
+  player:
+    - id: attack
+      trigger: attack
+      effects:
+        - type: apply
+          target: target
+          measurement: hp
+          delta: "-3"
+        - type: message
+          text: "{actor.name} punches {target.name} for 3 damage!"
+
+    - id: heal
+      trigger: heal
+      requires:
+        - "actor.mp >= 2"
+      effects:
+        - type: apply
+          target: actor
+          measurement: mp
+          delta: "-2"
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: "3"
+        - type: message
+          text: "{actor.name} heals for 3 HP!"
+
+    - id: wait
+      trigger: wait
+      effects:
+        - type: message
+          text: "{actor.name} waits."
+
+  ai:
+    - id: ai_heal
+      condition: "actor.hp < 8"
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: "2"
+        - type: message
+          text: "{actor.name} heals itself for 2 HP."
+
+    - id: ai_attack
+      effects:
+        - type: apply
+          target: target
+          measurement: hp
+          delta: "-2"
+        - type: message
+          text: "{actor.name} attacks {target.name} for 2 damage!"
+
+world:
+  loss_conditions:
+    - "player.hp <= 0"
+
+rendering:
+  beings:
+    puncher:
+      color: bright_white
+    healer:
+      color: bright_green
+  hud:
+    measurements:
+      - hp
+      - mp
+    message_log_size: 5
