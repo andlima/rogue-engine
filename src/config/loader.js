@@ -310,7 +310,7 @@ function validateExpression(exprStr, path, context) {
         const KNOWN_FIELDS = new Set([
           'x', 'y', 'name', 'label', 'glyph', 'color', 'kind',
           'tags', 'id', 'archetype', 'inventory', 'equipment',
-          'equipped', 'level', 'hp', 'max_hp',
+          'equipped', 'level',
         ]);
         if (!KNOWN_FIELDS.has(field) && !measurementIds.has(field)) {
           const suggestion = nearMiss(field, [...measurementIds, ...KNOWN_FIELDS]);

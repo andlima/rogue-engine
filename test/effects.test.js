@@ -257,6 +257,37 @@ describe('effect: lose', () => {
   });
 });
 
+describe('effect: pickup', () => {
+  it('moves an item from world entities into actor inventory', () => {
+    const state = makeState();
+    const potion = { id: 'potion', kind: 'item', x: 2, y: 2, name: 'Potion', itemKind: 'consumable' };
+    state.entities = [potion];
+    const scope = makeScope(state, state.player, potion);
+    const next = applyEffect(state, { type: 'pickup', target: 'actor' }, scope);
+    // Item removed from world entities
+    assert.equal(next.entities.length, 0);
+    // Item added to player inventory
+    assert.equal(next.player.inventory.length, 1);
+    assert.equal(next.player.inventory[0], potion);
+  });
+});
+
+describe('effect: equip', () => {
+  it('moves an item from inventory to equipment slot', () => {
+    const state = makeState();
+    const sword = { id: 'sword', kind: 'item', name: 'Sword', itemKind: 'weapon' };
+    state.player.inventory = [sword];
+    state.player.equipment = Object.create(null);
+    const scope = makeScope(state, state.player, sword);
+    scope._rawItem = sword;
+    const next = applyEffect(state, { type: 'equip', target: 'actor' }, scope);
+    // Item moved to equipment
+    assert.equal(next.player.equipment.weapon, sword);
+    // Item removed from inventory
+    assert.equal(next.player.inventory.length, 0);
+  });
+});
+
 describe('applyEffects', () => {
   it('chains multiple effects returning final state', () => {
     const state = makeState();

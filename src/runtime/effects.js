@@ -198,8 +198,8 @@ function handleEquip(state, effect, scope) {
   const slot = effect.slot || item.itemKind || 'default';
   const newEntity = {
     ...entity,
-    equipment: { ...entity.equipment, [slot]: item },
-    inventory: (entity.inventory || []).filter(i => i !== item),
+    equipment: { ...entity.equipment, [slot]: rawItem },
+    inventory: (entity.inventory || []).filter(i => i !== rawItem),
   };
   return update(newEntity);
 }

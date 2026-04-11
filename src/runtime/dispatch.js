@@ -112,8 +112,10 @@ function runAiActions(state) {
   if (!aiActions || aiActions.length === 0) return state;
 
   let current = state;
-  for (let i = 0; i < current.entities.length; i++) {
-    const entity = current.entities[i];
+  const snapshot = [...state.entities];
+  for (let i = 0; i < snapshot.length; i++) {
+    const entity = snapshot[i];
+    if (!current.entities.includes(entity)) continue;
     if (entity.kind !== 'being') continue;
     if (current.terminal) break;
 
