@@ -1,0 +1,19 @@
+{
+  "name": "rogue-engine",
+  "version": "0.1.0",
+  "description": "A data-driven roguelike engine where gameplay is defined entirely by YAML configuration",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node cli.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "keywords": ["roguelike", "game-engine", "data-driven", "yaml"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0"
+  }
+}
