@@ -1,0 +1,39 @@
+meta:
+  id: minimal
+  name: Minimal Dungeon
+  version: "0.1.0"
+  description: A minimal room to prove the engine pipeline works
+  player_archetype: player
+
+measurements:
+  - id: hp
+    label: Hit Points
+    min: 0
+    max: null
+    initial: 10
+
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+    measurements:
+      hp: 10
+    tags: [player]
+
+items: []
+
+map:
+  width: 10
+  height: 10
+  tiles:
+    - "##########"
+    - "#........#"
+    - "#........#"
+    - "#........#"
+    - "#........#"
+    - "#....@...#"
+    - "#........#"
+    - "#........#"
+    - "#........#"
+    - "##########"
