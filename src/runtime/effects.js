@@ -190,12 +190,25 @@ function handleRemove(state, effect, scope) {
 
 function handleEquip(state, effect, scope) {
   const { entity, update } = resolveTarget(state, effect.target || 'actor', scope);
-  const rawItem = scope._rawTarget || scope._rawItem;
-  const item = scope.target || scope.item;
-  if (!item || !entity.equipment) return state;
+  if (!entity.equipment) return state;
+
+  // Resolve the item to equip:
+  // 1. Explicit item id from effect definition
+  // 2. Scope target if it's an item
+  // 3. First item in actor's inventory
+  let rawItem;
+  if (effect.item) {
+    rawItem = (entity.inventory || []).find(i => i.id === effect.item);
+  }
+  if (!rawItem && scope._rawTarget && scope._rawTarget.kind === 'item') {
+    rawItem = scope._rawTarget;
+  }
+  if (!rawItem) {
+    rawItem = (entity.inventory || []).find(i => i.kind === 'item');
+  }
   if (!rawItem || rawItem.kind !== 'item') return state;
 
-  const slot = effect.slot || item.itemKind || 'default';
+  const slot = effect.slot || rawItem.itemKind || 'default';
   const newEntity = {
     ...entity,
     equipment: { ...entity.equipment, [slot]: rawItem },
@@ -207,22 +220,35 @@ function handleEquip(state, effect, scope) {
 function handlePickup(state, effect, scope) {
   const actorRef = effect.target || 'actor';
   const { entity, update } = resolveTarget(state, actorRef, scope);
-  const rawItem = scope._rawTarget;
+
+  // Resolve the item to pick up:
+  // 1. Scope target if it's an item (when dispatched with item as target)
+  // 2. First item entity at the actor's tile position
+  let rawItem;
+  if (scope._rawTarget && scope._rawTarget.kind === 'item') {
+    rawItem = scope._rawTarget;
+  }
+  if (!rawItem) {
+    rawItem = state.entities.find(
+      e => e.kind === 'item' && e.x === entity.x && e.y === entity.y
+    );
+  }
   if (!rawItem || rawItem.kind !== 'item') return state;
 
   const newEntity = {
     ...entity,
     inventory: [...(entity.inventory || []), rawItem],
   };
-  // Remove item from world entities
+  // Remove item from world entities, then update the actor via stable index
   const stateWithoutItem = { ...state, entities: state.entities.filter(e => e !== rawItem) };
-  // Update the entity that picked up
-  if (entity === state.player) {
+  // Re-resolve using the updated entities list since filter may shift indices
+  const actorIdx = scope._actorIdx ?? -1;
+  if (actorIdx < 0) {
     return { ...stateWithoutItem, player: newEntity };
   }
   return {
     ...stateWithoutItem,
-    entities: stateWithoutItem.entities.map(e => e === entity ? newEntity : e),
+    entities: stateWithoutItem.entities.map((e, i) => i === actorIdx ? newEntity : e),
   };
 }
 

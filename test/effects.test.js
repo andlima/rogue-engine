@@ -270,6 +270,18 @@ describe('effect: pickup', () => {
     assert.equal(next.player.inventory.length, 1);
     assert.equal(next.player.inventory[0], potion);
   });
+
+  it('resolves item from actor tile when scope target is not an item', () => {
+    const state = makeState();
+    const potion = { id: 'potion', kind: 'item', x: 2, y: 2, name: 'Potion', itemKind: 'consumable' };
+    state.entities = [potion];
+    // Scope with no item target (same as dispatch builds for player actions)
+    const scope = makeScope(state, state.player, null);
+    const next = applyEffect(state, { type: 'pickup', target: 'actor' }, scope);
+    assert.equal(next.entities.length, 0);
+    assert.equal(next.player.inventory.length, 1);
+    assert.equal(next.player.inventory[0], potion);
+  });
 });
 
 describe('effect: equip', () => {
@@ -285,6 +297,31 @@ describe('effect: equip', () => {
     assert.equal(next.player.equipment.weapon, sword);
     // Item removed from inventory
     assert.equal(next.player.inventory.length, 0);
+  });
+
+  it('resolves item from inventory when scope target is not an item', () => {
+    const state = makeState();
+    const sword = { id: 'sword', kind: 'item', name: 'Sword', itemKind: 'weapon' };
+    state.player.inventory = [sword];
+    state.player.equipment = Object.create(null);
+    // Scope with no item target (same as dispatch builds for player actions)
+    const scope = makeScope(state, state.player, null);
+    const next = applyEffect(state, { type: 'equip', target: 'actor' }, scope);
+    assert.equal(next.player.equipment.weapon, sword);
+    assert.equal(next.player.inventory.length, 0);
+  });
+
+  it('resolves item by id from effect definition', () => {
+    const state = makeState();
+    const sword = { id: 'sword', kind: 'item', name: 'Sword', itemKind: 'weapon' };
+    const shield = { id: 'shield', kind: 'item', name: 'Shield', itemKind: 'armor' };
+    state.player.inventory = [sword, shield];
+    state.player.equipment = Object.create(null);
+    const scope = makeScope(state, state.player, null);
+    const next = applyEffect(state, { type: 'equip', target: 'actor', item: 'shield' }, scope);
+    assert.equal(next.player.equipment.armor, shield);
+    assert.equal(next.player.inventory.length, 1);
+    assert.equal(next.player.inventory[0], sword);
   });
 });
 

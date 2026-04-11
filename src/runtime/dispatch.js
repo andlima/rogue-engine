@@ -112,12 +112,14 @@ function runAiActions(state) {
   if (!aiActions || aiActions.length === 0) return state;
 
   let current = state;
-  const snapshot = [...state.entities];
-  for (let i = 0; i < snapshot.length; i++) {
-    const entity = snapshot[i];
-    if (!current.entities.includes(entity)) continue;
-    if (entity.kind !== 'being') continue;
+  // Snapshot entity count; iterate by stable index so entities modified by
+  // a prior AI entity's effects (new object identity) still get their turn.
+  const entityCount = state.entities.length;
+  for (let i = 0; i < entityCount; i++) {
     if (current.terminal) break;
+    const entity = current.entities[i];
+    if (!entity) continue; // entity was removed
+    if (entity.kind !== 'being') continue;
 
     const scope = buildScope(current, entity, current.player);
 
