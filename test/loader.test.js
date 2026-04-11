@@ -246,6 +246,10 @@ describe('loader - valid game loading', () => {
     assert.deepEqual(def.map.spawn, { x: 2, y: 2 });
     assert.ok(def._index.measurements.hp);
     assert.ok(def._index.beings.player);
+    // New sections default to empty/null
+    assert.ok(def.actions);
+    assert.deepEqual(def.actions.player, []);
+    assert.deepEqual(def.actions.ai, []);
   });
 
   it('loads games/minimal.yaml and produces valid definition', async () => {
@@ -262,11 +266,9 @@ describe('loader - valid game loading', () => {
   it('produces deterministic results (two loads are equal)', () => {
     const def1 = loadFromString(VALID_YAML);
     const def2 = loadFromString(VALID_YAML);
-    // Remove _index for comparison since it uses Object.create(null)
     const { _index: _i1, ...rest1 } = def1;
     const { _index: _i2, ...rest2 } = def2;
     assert.deepEqual(rest1, rest2);
-    // Also check index keys match
     assert.deepEqual(Object.keys(_i1.measurements), Object.keys(_i2.measurements));
     assert.deepEqual(Object.keys(_i1.beings), Object.keys(_i2.beings));
   });
