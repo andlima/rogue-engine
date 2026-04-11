@@ -55,6 +55,11 @@ function entityView(entity) {
 function buildScope(state, actor, target) {
   const actorView = entityView(actor);
   const targetView = target ? entityView(target) : actorView;
+  // Compute stable indices: -1 means player, >= 0 means index in state.entities
+  const actorIdx = actor === state.player ? -1 : state.entities.indexOf(actor);
+  const targetIdx = target
+    ? (target === state.player ? -1 : state.entities.indexOf(target))
+    : actorIdx;
   return {
     self: actorView,
     actor: actorView,
@@ -66,7 +71,10 @@ function buildScope(state, actor, target) {
     },
     player: entityView(state.player),
     _rng: state.rng,
-    // Raw references for effect target resolution
+    // Stable indices for effect target resolution (survives immutable updates)
+    _actorIdx: actorIdx,
+    _targetIdx: targetIdx,
+    // Raw references for backward compat
     _rawActor: actor,
     _rawTarget: target || actor,
     _rawPlayer: state.player,

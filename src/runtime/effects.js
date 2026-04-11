@@ -44,31 +44,30 @@ function evalField(field, scope, rng) {
  * Returns { entity, update(newEntity) → newState }
  */
 function resolveTarget(state, targetRef, scope) {
-  // Pick the raw entity reference based on the target keyword
-  let rawEntity;
+  // Determine which entity index to use based on the target keyword
+  let idx;
   if (targetRef === 'player') {
-    rawEntity = scope._rawPlayer || state.player;
+    idx = -1;
   } else if (targetRef === 'self' || targetRef === 'actor') {
-    rawEntity = scope._rawActor || state.player;
+    idx = scope._actorIdx ?? -1;
   } else if (targetRef === 'target') {
-    rawEntity = scope._rawTarget || scope._rawActor || state.player;
+    idx = scope._targetIdx ?? scope._actorIdx ?? -1;
   } else {
-    rawEntity = state.player;
+    idx = -1;
   }
 
-  // Is it the player?
-  if (rawEntity === state.player) {
+  // Player (idx === -1)
+  if (idx < 0) {
     return {
       entity: state.player,
       update: (newEntity) => ({ ...state, player: newEntity }),
     };
   }
 
-  // It's an NPC entity — find by reference in entities list
-  const idx = state.entities.indexOf(rawEntity);
-  if (idx >= 0) {
+  // NPC entity — use stable index
+  if (idx < state.entities.length) {
     return {
-      entity: rawEntity,
+      entity: state.entities[idx],
       update: (newEntity) => ({
         ...state,
         entities: state.entities.map((e, i) => i === idx ? newEntity : e),
@@ -191,8 +190,10 @@ function handleRemove(state, effect, scope) {
 
 function handleEquip(state, effect, scope) {
   const { entity, update } = resolveTarget(state, effect.target || 'actor', scope);
+  const rawItem = scope._rawTarget || scope._rawItem;
   const item = scope.target || scope.item;
   if (!item || !entity.equipment) return state;
+  if (!rawItem || rawItem.kind !== 'item') return state;
 
   const slot = effect.slot || item.itemKind || 'default';
   const newEntity = {
@@ -282,6 +283,41 @@ const EFFECT_HANDLERS = {
 export const EFFECT_TYPES = new Set(Object.keys(EFFECT_HANDLERS));
 
 /**
+ * Create a shallow view of an entity with measurements flattened as top-level keys.
+ */
+function entityView(entity) {
+  if (!entity || !entity.measurements) return entity;
+  return { ...entity, ...entity.measurements };
+}
+
+/**
+ * Refresh scope references after an effect has updated the state.
+ * Uses stable indices (_actorIdx, _targetIdx) to find the current entity
+ * objects in the updated state, and re-flattens measurements for expressions.
+ */
+function refreshScope(scope, state) {
+  const actorIdx = scope._actorIdx ?? -1;
+  const targetIdx = scope._targetIdx ?? -1;
+  const actor = actorIdx >= 0 ? state.entities[actorIdx] : state.player;
+  const target = targetIdx >= 0 ? state.entities[targetIdx] : state.player;
+  if (!actor) return scope; // entity was removed; keep stale scope
+
+  const actorView = entityView(actor);
+  const targetView = target ? entityView(target) : actorView;
+  return {
+    ...scope,
+    self: actorView,
+    actor: actorView,
+    target: targetView,
+    tile: { x: actor.x, y: actor.y },
+    player: entityView(state.player),
+    _rawActor: actor,
+    _rawTarget: target || actor,
+    _rawPlayer: state.player,
+  };
+}
+
+/**
  * Execute a single effect, returning a new state.
  */
 export function applyEffect(state, effect, scope) {
@@ -292,12 +328,17 @@ export function applyEffect(state, effect, scope) {
 
 /**
  * Execute a list of effects in order, threading state through.
+ * After each effect, refreshes scope references so subsequent effects
+ * see updated entity state and measurements.
  */
 export function applyEffects(state, effects, scope) {
   let current = state;
+  let liveScope = scope;
   for (const effect of effects) {
-    current = applyEffect(current, effect, scope);
+    current = applyEffect(current, effect, liveScope);
     if (current.terminal) break;
+    // Refresh scope: update raw references and re-flatten measurements
+    liveScope = refreshScope(liveScope, current);
   }
   return current;
 }

@@ -61,6 +61,8 @@ function makeState() {
 function makeScope(state, actor, target) {
   const a = actor || state.player;
   const t = target || state.player;
+  const actorIdx = a === state.player ? -1 : state.entities.indexOf(a);
+  const targetIdx = t === state.player ? -1 : state.entities.indexOf(t);
   return {
     self: a,
     actor: a,
@@ -69,6 +71,8 @@ function makeScope(state, actor, target) {
     state: { level: state.level, turn: state.turn },
     player: state.player,
     _rng: state.rng,
+    _actorIdx: actorIdx,
+    _targetIdx: targetIdx,
     _rawActor: a,
     _rawTarget: t,
     _rawPlayer: state.player,

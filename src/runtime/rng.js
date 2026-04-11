@@ -25,6 +25,7 @@ export function randomInt(rng, lo, hi) {
  * Returns value of the chosen entry.
  */
 export function weightedPick(rng, entries) {
+  if (entries.length === 0) return undefined;
   const total = entries.reduce((s, e) => s + e.weight, 0);
   let roll = rng() * total;
   for (const entry of entries) {
