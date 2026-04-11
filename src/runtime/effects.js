@@ -200,7 +200,8 @@ function handleEquip(state, effect, scope) {
   if (effect.item) {
     rawItem = (entity.inventory || []).find(i => i.id === effect.item);
   }
-  if (!rawItem && scope._rawTarget && scope._rawTarget.kind === 'item') {
+  if (!rawItem && scope._rawTarget && scope._rawTarget.kind === 'item'
+      && (entity.inventory || []).includes(scope._rawTarget)) {
     rawItem = scope._rawTarget;
   }
   if (!rawItem) {
@@ -239,16 +240,16 @@ function handlePickup(state, effect, scope) {
     ...entity,
     inventory: [...(entity.inventory || []), rawItem],
   };
-  // Remove item from world entities, then update the actor via stable index
+  // Remove item from world entities, then update the actor by identity match
   const stateWithoutItem = { ...state, entities: state.entities.filter(e => e !== rawItem) };
-  // Re-resolve using the updated entities list since filter may shift indices
   const actorIdx = scope._actorIdx ?? -1;
   if (actorIdx < 0) {
     return { ...stateWithoutItem, player: newEntity };
   }
+  // Match by identity — filtering may have shifted indices
   return {
     ...stateWithoutItem,
-    entities: stateWithoutItem.entities.map((e, i) => i === actorIdx ? newEntity : e),
+    entities: stateWithoutItem.entities.map(e => e === entity ? newEntity : e),
   };
 }
 

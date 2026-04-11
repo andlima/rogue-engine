@@ -112,14 +112,17 @@ function runAiActions(state) {
   if (!aiActions || aiActions.length === 0) return state;
 
   let current = state;
-  // Snapshot entity count; iterate by stable index so entities modified by
-  // a prior AI entity's effects (new object identity) still get their turn.
-  const entityCount = state.entities.length;
-  for (let i = 0; i < entityCount; i++) {
+  // Snapshot entity references upfront so removals during iteration don't
+  // cause index drift (skipped or out-of-bounds entities).
+  const snapshot = state.entities.filter(e => e.kind === 'being');
+  for (const originalEntity of snapshot) {
     if (current.terminal) break;
-    const entity = current.entities[i];
-    if (!entity) continue; // entity was removed
-    if (entity.kind !== 'being') continue;
+    // Re-find the entity by id+position in the current array, since prior
+    // effects may have replaced it with a new object (immutable updates).
+    const entity = current.entities.find(e => e === originalEntity)
+      || current.entities.find(e => e.id === originalEntity.id && e.kind === 'being'
+          && e.x === originalEntity.x && e.y === originalEntity.y);
+    if (!entity) continue; // entity was removed by a prior action
 
     const scope = buildScope(current, entity, current.player);
 

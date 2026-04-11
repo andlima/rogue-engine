@@ -282,6 +282,26 @@ describe('effect: pickup', () => {
     assert.equal(next.player.inventory.length, 1);
     assert.equal(next.player.inventory[0], potion);
   });
+
+  it('NPC pickup works when item is at a lower index than the actor', () => {
+    const state = makeState();
+    const potion = { id: 'potion', kind: 'item', x: 3, y: 3, name: 'Potion', itemKind: 'consumable' };
+    const goblin = {
+      id: 'goblin', kind: 'being', x: 3, y: 3, label: 'Goblin',
+      glyph: 'g', color: 'green', tags: ['monster'],
+      measurements: { hp: 5 }, inventory: [], equipment: Object.create(null),
+    };
+    // Item at index 0, goblin at index 1 — filtering the item shifts goblin to index 0
+    state.entities = [potion, goblin];
+    const scope = makeScope(state, goblin, potion);
+    const next = applyEffect(state, { type: 'pickup', target: 'actor' }, scope);
+    // Item removed from world
+    assert.equal(next.entities.length, 1);
+    // Goblin (now at index 0) gets the item in its inventory
+    assert.equal(next.entities[0].inventory.length, 1);
+    assert.equal(next.entities[0].inventory[0], potion);
+    assert.equal(next.entities[0].id, 'goblin');
+  });
 });
 
 describe('effect: equip', () => {
@@ -322,6 +342,34 @@ describe('effect: equip', () => {
     assert.equal(next.player.equipment.armor, shield);
     assert.equal(next.player.inventory.length, 1);
     assert.equal(next.player.inventory[0], sword);
+  });
+
+  it('NPC equip moves item from inventory to equipment', () => {
+    const state = makeState();
+    const sword = { id: 'sword', kind: 'item', name: 'Sword', itemKind: 'weapon' };
+    const goblin = {
+      id: 'goblin', kind: 'being', x: 3, y: 3, label: 'Goblin',
+      glyph: 'g', color: 'green', tags: ['monster'],
+      measurements: { hp: 5 }, inventory: [sword], equipment: Object.create(null),
+    };
+    state.entities = [goblin];
+    const scope = makeScope(state, goblin, sword);
+    const next = applyEffect(state, { type: 'equip', target: 'actor' }, scope);
+    assert.equal(next.entities[0].equipment.weapon, sword);
+    assert.equal(next.entities[0].inventory.length, 0);
+  });
+
+  it('does not equip scope target item that is not in actor inventory', () => {
+    const state = makeState();
+    const groundSword = { id: 'sword', kind: 'item', name: 'Sword', itemKind: 'weapon', x: 3, y: 3 };
+    state.entities = [groundSword];
+    state.player.equipment = Object.create(null);
+    // Scope target is the ground item, but it's not in player inventory
+    const scope = makeScope(state, state.player, groundSword);
+    const next = applyEffect(state, { type: 'equip', target: 'actor' }, scope);
+    // Should be a no-op: item not in inventory
+    assert.equal(next.player.equipment.weapon, undefined);
+    assert.equal(next.player.inventory.length, 0);
   });
 });
 
