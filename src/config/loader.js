@@ -428,6 +428,14 @@ function validateEffectObj(raw, path, context) {
     effect.target = raw.target || 'actor';
   }
 
+  if (type === 'consume') {
+    effect.target = raw.target || 'actor';
+    effect.item = requireString(raw, 'item', path);
+    if (!context.itemIds.has(effect.item)) {
+      throw new SchemaError(`${path}.item`, `unknown item '${effect.item}'`);
+    }
+  }
+
   if (type === 'message') {
     effect.text = requireString(raw, 'text', path);
   }

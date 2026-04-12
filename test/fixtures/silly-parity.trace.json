@@ -14,5 +14,181 @@
     "entityCount": 6,
     "lastMessage": null,
     "terminal": null
+  },
+  {
+    "label": "move_east",
+    "turn": 1,
+    "px": 6,
+    "py": 7,
+    "hp": 30,
+    "kills": 0,
+    "steps": 1,
+    "gold": 0,
+    "damage_dealt": 0,
+    "inventory": [],
+    "equipment": {},
+    "entityCount": 6,
+    "lastMessage": "The Rat hits you for 0 damage.",
+    "terminal": null
+  },
+  {
+    "label": "attack_rat",
+    "turn": 2,
+    "px": 6,
+    "py": 7,
+    "hp": 30,
+    "kills": 1,
+    "steps": 1,
+    "gold": 0,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {},
+    "entityCount": 5,
+    "lastMessage": "The Rat is defeated!",
+    "terminal": null
+  },
+  {
+    "label": "rat_dead",
+    "turn": 2,
+    "px": 6,
+    "py": 7,
+    "hp": 30,
+    "kills": 1,
+    "steps": 1,
+    "gold": 0,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {},
+    "entityCount": 5,
+    "lastMessage": "The Rat is defeated!",
+    "terminal": null
+  },
+  {
+    "label": "got_dagger",
+    "turn": 5,
+    "px": 3,
+    "py": 7,
+    "hp": 30,
+    "kills": 1,
+    "steps": 4,
+    "gold": 0,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {
+      "weapon": "dagger"
+    },
+    "entityCount": 4,
+    "lastMessage": "You equip a Dagger (+2 attack).",
+    "terminal": null
+  },
+  {
+    "label": "got_food",
+    "turn": 9,
+    "px": 5,
+    "py": 5,
+    "hp": 30,
+    "kills": 1,
+    "steps": 8,
+    "gold": 0,
+    "damage_dealt": 5,
+    "inventory": [
+      "food"
+    ],
+    "equipment": {
+      "weapon": "dagger"
+    },
+    "entityCount": 3,
+    "lastMessage": "You pick up some food.",
+    "terminal": null
+  },
+  {
+    "label": "used_food",
+    "turn": 10,
+    "px": 5,
+    "py": 5,
+    "hp": 30,
+    "kills": 1,
+    "steps": 8,
+    "gold": 0,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {
+      "weapon": "dagger"
+    },
+    "entityCount": 3,
+    "lastMessage": "You eat food and restore 10 HP.",
+    "terminal": null
+  },
+  {
+    "label": "got_sword",
+    "turn": 17,
+    "px": 10,
+    "py": 7,
+    "hp": 30,
+    "kills": 1,
+    "steps": 15,
+    "gold": 0,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {
+      "weapon": "sword"
+    },
+    "entityCount": 2,
+    "lastMessage": "You equip a Sword (+4 attack).",
+    "terminal": null
+  },
+  {
+    "label": "got_gold",
+    "turn": 24,
+    "px": 5,
+    "py": 9,
+    "hp": 30,
+    "kills": 1,
+    "steps": 22,
+    "gold": 2,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {
+      "weapon": "sword"
+    },
+    "entityCount": 1,
+    "lastMessage": "You pick up 2 gold.",
+    "terminal": null
+  },
+  {
+    "label": "descended",
+    "turn": 37,
+    "px": 70,
+    "py": 15,
+    "hp": 30,
+    "kills": 1,
+    "steps": 34,
+    "gold": 2,
+    "damage_dealt": 5,
+    "inventory": [],
+    "equipment": {
+      "weapon": "sword"
+    },
+    "entityCount": 21,
+    "lastMessage": "You descend deeper into the dungeon...",
+    "terminal": null
+  },
+  {
+    "label": "death",
+    "turn": 38,
+    "px": 70,
+    "py": 15,
+    "hp": 0,
+    "kills": 1,
+    "steps": 34,
+    "gold": 2,
+    "damage_dealt": 6,
+    "inventory": [],
+    "equipment": {
+      "weapon": "sword"
+    },
+    "entityCount": 22,
+    "lastMessage": "The Bear hits you for 4 damage.",
+    "terminal": "lose"
   }
 ]

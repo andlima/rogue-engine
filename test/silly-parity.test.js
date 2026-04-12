@@ -249,13 +249,20 @@ describe('silly-game parity', () => {
     state = dispatch(state, { type: 'action', trigger: 'use_food' });
     assert.equal(state.player.measurements.hp, 25, 'healed 10 HP');
     assert.equal(state.player.measurements.food_used, 1);
-    assert.ok(state.messages.some(m => m.includes('eat food')));
+    assert.ok(state.messages.some(m => m.includes('restore 10 HP')), 'message shows 10 HP');
+    assert.equal(state.player.inventory.length, 0, 'food consumed from inventory');
 
     // Use again at 25 → capped at 30
     const food2 = { ...food };
     state = { ...state, player: { ...state.player, inventory: [food2] } };
     state = dispatch(state, { type: 'action', trigger: 'use_food' });
     assert.equal(state.player.measurements.hp, 30, 'capped at max_hp');
+    assert.equal(state.player.inventory.length, 0, 'food consumed');
+
+    // Without food in inventory, use_food should be a no-op
+    state = { ...state, player: { ...state.player, measurements: { ...state.player.measurements, hp: 20 }, inventory: [] } };
+    state = dispatch(state, { type: 'action', trigger: 'use_food' });
+    assert.equal(state.player.measurements.hp, 20, 'no food — no healing');
   });
 
   it('equipment upgrade: sword replaces dagger, same-bonus ignored', () => {
@@ -496,8 +503,97 @@ describe('silly-game parity', () => {
     } catch {
       return; // No trace file — skip
     }
-    const state = makeTestState(definition, {});
-    assert.equal(state.player.measurements.hp, savedTrace[0].hp);
-    assert.equal(state.player.x, savedTrace[0].px);
+
+    // Replay the same scripted playthrough and compare full state transitions
+    const trace = [];
+    function snap(state, label) {
+      trace.push({
+        label,
+        turn: state.turn,
+        px: state.player.x, py: state.player.y,
+        hp: state.player.measurements.hp,
+        kills: state.player.measurements.kills,
+        steps: state.player.measurements.steps,
+        gold: state.player.measurements.gold,
+        damage_dealt: state.player.measurements.damage_dealt,
+        inventory: state.player.inventory.map(i => i.id),
+        equipment: Object.fromEntries(
+          Object.entries(state.player.equipment).map(([k, v]) => [k, v.id])
+        ),
+        entityCount: state.entities.length,
+        lastMessage: state.messages[state.messages.length - 1] || null,
+        terminal: state.terminal || null,
+      });
+    }
+
+    let state = makeTestState(definition, {
+      entities: [
+        makeBeing(definition, 'rat', 7, 7),
+        makeItem(definition, 'dagger', 3, 7),
+        makeItem(definition, 'food', 5, 5),
+        makeItem(definition, 'sword', 10, 7),
+        makeItem(definition, 'gold', 5, 9),
+        makeBeing(definition, 'bear', 18, 1),
+      ],
+      rngSeed: 200,
+    });
+    snap(state, 'initial');
+
+    state = dispatch(state, { type: 'move', dir: 'e' });
+    snap(state, 'move_east');
+    state = dispatch(state, { type: 'move', dir: 'e' });
+    snap(state, 'attack_rat');
+    while (state.entities.some(e => e.id === 'rat' && e.measurements?.hp > 0)) {
+      state = dispatch(state, { type: 'move', dir: 'e' });
+      if (state.terminal) break;
+    }
+    snap(state, 'rat_dead');
+
+    for (let i = 0; i < 3; i++) state = dispatch(state, { type: 'move', dir: 'w' });
+    snap(state, 'got_dagger');
+
+    state = dispatch(state, { type: 'move', dir: 'e' });
+    state = dispatch(state, { type: 'move', dir: 'e' });
+    state = dispatch(state, { type: 'move', dir: 'n' });
+    state = dispatch(state, { type: 'move', dir: 'n' });
+    snap(state, 'got_food');
+
+    state = { ...state, player: { ...state.player, measurements: { ...state.player.measurements, hp: 20 } } };
+    state = dispatch(state, { type: 'action', trigger: 'use_food' });
+    snap(state, 'used_food');
+
+    state = dispatch(state, { type: 'move', dir: 's' });
+    state = dispatch(state, { type: 'move', dir: 's' });
+    for (let i = 0; i < 5; i++) state = dispatch(state, { type: 'move', dir: 'e' });
+    snap(state, 'got_sword');
+
+    for (let i = 0; i < 5; i++) state = dispatch(state, { type: 'move', dir: 'w' });
+    state = dispatch(state, { type: 'move', dir: 's' });
+    state = dispatch(state, { type: 'move', dir: 's' });
+    snap(state, 'got_gold');
+
+    state = dispatch(state, { type: 'move', dir: 'n' });
+    state = dispatch(state, { type: 'move', dir: 'n' });
+    for (let i = 0; i < 10; i++) state = dispatch(state, { type: 'move', dir: 'e' });
+    state = dispatch(state, { type: 'action', trigger: 'descend' });
+    snap(state, 'descended');
+
+    const bear = makeBeing(definition, 'bear', state.player.x + 1, state.player.y);
+    state = {
+      ...state,
+      entities: [...state.entities, bear],
+      player: { ...state.player, measurements: { ...state.player.measurements, hp: 3 } },
+    };
+    for (let i = 0; i < 10; i++) {
+      state = dispatch(state, { type: 'move', dir: 'e' });
+      if (state.terminal === 'lose') break;
+    }
+    snap(state, 'death');
+
+    // Assert full trace matches saved reference
+    assert.equal(trace.length, savedTrace.length, `trace length mismatch: got ${trace.length}, expected ${savedTrace.length}`);
+    for (let i = 0; i < savedTrace.length; i++) {
+      assert.deepEqual(trace[i], savedTrace[i], `trace entry '${savedTrace[i].label}' mismatch`);
+    }
   });
 });

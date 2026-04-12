@@ -125,6 +125,13 @@ const BUILTINS = {
     if (!map || x < 0 || x >= map.width || y < 0 || y >= map.height) return '';
     return map.tiles[y][x];
   }],
+  // Check if the actor has an item with the given id in inventory
+  has_item: [1, 1, (args, _rng, ctx) => {
+    const itemId = args[0];
+    const actor = ctx?.scope?._rawActor || ctx?.scope?._rawPlayer;
+    if (!actor || !actor.inventory) return false;
+    return actor.inventory.some(i => i.id === itemId);
+  }],
 };
 
 export const BUILTIN_NAMES = new Set(Object.keys(BUILTINS));

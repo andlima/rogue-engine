@@ -331,17 +331,21 @@ actions:
       trigger: use_food
       requires:
         - "actor.hp < actor.max_hp"
+        - "has_item('food')"
       effects:
         - type: apply
           target: actor
           measurement: hp
           delta: 10
+        - type: message
+          text: "You eat food and restore {delta} HP."
         - type: apply
           target: actor
           measurement: food_used
           delta: 1
-        - type: message
-          text: "You eat food and restore {delta} HP."
+        - type: consume
+          target: actor
+          item: food
 
     # Descend stairs
     - id: descend

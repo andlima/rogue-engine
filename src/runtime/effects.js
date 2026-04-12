@@ -45,6 +45,26 @@ function evalField(field, scope, rng) {
  * target values: "self", "actor", "target", "player"
  * Returns { entity, update(newEntity) → newState }
  */
+/**
+ * After removing an entity at `removedIdx` from the entities array,
+ * adjust scope._actorIdx and scope._targetIdx so they still point
+ * at the correct entities (or are invalidated if they pointed at the
+ * removed entity). Mutates scope in place.
+ */
+function adjustScopeIndicesAfterRemoval(scope, removedIdx) {
+  if (removedIdx < 0) return;
+  if (scope._targetIdx === removedIdx) {
+    scope._targetIdx = -2; // sentinel: entity was removed
+  } else if (scope._targetIdx > removedIdx) {
+    scope._targetIdx = scope._targetIdx - 1;
+  }
+  if (scope._actorIdx === removedIdx) {
+    scope._actorIdx = -2;
+  } else if (scope._actorIdx > removedIdx) {
+    scope._actorIdx = scope._actorIdx - 1;
+  }
+}
+
 function resolveTarget(state, targetRef, scope) {
   // Determine which entity index to use based on the target keyword
   let idx;
@@ -189,7 +209,24 @@ function handleRemove(state, effect, scope) {
   const targetRef = effect.target || 'target';
   const { entity } = resolveTarget(state, targetRef, scope);
   if (entity === state.player) return state; // Can't remove the player
-  return { ...state, entities: state.entities.filter(e => e !== entity) };
+  const removedIdx = state.entities.indexOf(entity);
+  const newEntities = state.entities.filter(e => e !== entity);
+  adjustScopeIndicesAfterRemoval(scope, removedIdx);
+  return { ...state, entities: newEntities };
+}
+
+/**
+ * Consume (remove) an item from the actor's inventory by item id.
+ */
+function handleConsume(state, effect, scope) {
+  const { entity, update } = resolveTarget(state, effect.target || 'actor', scope);
+  const itemId = effect.item;
+  if (!itemId || !entity.inventory) return state;
+  const idx = entity.inventory.findIndex(i => i.id === itemId);
+  if (idx < 0) return state;
+  const newInventory = [...entity.inventory];
+  newInventory.splice(idx, 1);
+  return update({ ...entity, inventory: newInventory });
 }
 
 function handleEquip(state, effect, scope) {
@@ -233,7 +270,9 @@ function handleEquip(state, effect, scope) {
 
   if (fromGround) {
     // Remove item from ground entities
+    const removedIdx = newState.entities.indexOf(rawItem);
     newState = { ...newState, entities: newState.entities.filter(e => e !== rawItem) };
+    adjustScopeIndicesAfterRemoval(scope, removedIdx);
     // Re-resolve entity after state change (player may have shifted)
     const actorIdx = scope._actorIdx ?? -1;
     updatedEntity = actorIdx < 0 ? newState.player : newState.entities[actorIdx];
@@ -276,7 +315,9 @@ function handlePickup(state, effect, scope) {
     inventory: [...(entity.inventory || []), rawItem],
   };
   // Remove item from world entities, then update the actor by identity match
+  const removedIdx = state.entities.indexOf(rawItem);
   const stateWithoutItem = { ...state, entities: state.entities.filter(e => e !== rawItem) };
+  adjustScopeIndicesAfterRemoval(scope, removedIdx);
   const actorIdx = scope._actorIdx ?? -1;
   if (actorIdx < 0) {
     return { ...stateWithoutItem, player: newEntity };
@@ -513,6 +554,7 @@ const EFFECT_HANDLERS = {
   move: handleMove,
   spawn: handleSpawn,
   remove: handleRemove,
+  consume: handleConsume,
   equip: handleEquip,
   pickup: handlePickup,
   message: handleMessage,
@@ -541,6 +583,7 @@ function entityView(entity) {
 function refreshScope(scope, state) {
   const actorIdx = scope._actorIdx ?? -1;
   const targetIdx = scope._targetIdx ?? -1;
+  // -2 sentinel means entity was removed; fall back to player
   const actor = actorIdx >= 0 ? state.entities[actorIdx] : state.player;
   const target = targetIdx >= 0 ? state.entities[targetIdx] : state.player;
   if (!actor) return scope; // entity was removed; keep stale scope

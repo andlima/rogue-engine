@@ -4,6 +4,7 @@ import { loadFromFile } from './src/config/loader.js';
 import { createState } from './src/runtime/state.js';
 import { dispatch } from './src/runtime/dispatch.js';
 import { getVisibleTiles } from './src/runtime/view.js';
+import { computeFOV } from './src/runtime/fov.js';
 import { renderToString, renderStatus } from './src/renderer/ascii.js';
 
 const { values } = parseArgs({
@@ -26,7 +27,8 @@ const VIEW_H = 15;
 function draw() {
   // Clear screen
   process.stdout.write('\x1b[2J\x1b[H');
-  const grid = getVisibleTiles(state, VIEW_W, VIEW_H);
+  const fovMap = state.map ? computeFOV(state.map, state.player.x, state.player.y) : undefined;
+  const grid = getVisibleTiles(state, VIEW_W, VIEW_H, fovMap);
   console.log(renderToString(grid));
   console.log();
   console.log(renderStatus(state));
