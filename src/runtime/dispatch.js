@@ -22,7 +22,7 @@ function handleMove(state, action) {
 
   const nx = state.player.x + delta.dx;
   const ny = state.player.y + delta.dy;
-  const { map } = state.definition;
+  const map = state.map || state.definition.map;
 
   if (!map) return state;
   if (nx < 0 || nx >= map.width || ny < 0 || ny >= map.height) return state;
@@ -38,11 +38,27 @@ function handleMove(state, action) {
 /**
  * Create a scope-friendly view of an entity that exposes measurements
  * as direct properties (e.g. `actor.hp` instead of `actor.measurements.hp`).
+ * Also computes equipment bonus aggregates (equip_attack, equip_defense).
  */
 function entityView(entity) {
   if (!entity) return entity;
-  if (!entity.measurements) return entity;
-  return { ...entity, ...entity.measurements };
+  const view = entity.measurements
+    ? { ...entity, ...entity.measurements }
+    : { ...entity };
+  // Compute equipment bonuses
+  if (entity.equipment) {
+    let equip_attack = 0;
+    let equip_defense = 0;
+    for (const item of Object.values(entity.equipment)) {
+      if (item && item.properties) {
+        if (item.properties.stat === 'attack') equip_attack += item.properties.bonus || 0;
+        if (item.properties.stat === 'defense') equip_defense += item.properties.bonus || 0;
+      }
+    }
+    view.equip_attack = equip_attack;
+    view.equip_defense = equip_defense;
+  }
+  return view;
 }
 
 /**
@@ -83,17 +99,24 @@ function buildScope(state, actor, target) {
 
 /**
  * Execute a defined player action by trigger.
+ * If inputData is provided (e.g. direction for move), it is added to scope
+ * as scope.input with { dir, dx, dy }.
  */
-function handlePlayerAction(state, trigger) {
+function handlePlayerAction(state, trigger, inputData) {
   const actionDef = state.definition._index.playerActionByTrigger[trigger];
   if (!actionDef) return null;
 
   const scope = buildScope(state, state.player, null);
 
+  // Inject input data for directional actions
+  if (inputData) {
+    scope.input = inputData;
+  }
+
   // Check preconditions
   if (actionDef.requires && actionDef.requires.length > 0) {
     for (const req of actionDef.requires) {
-      const result = evaluate(req.ast, scope, { rng: state.rng });
+      const result = evaluate(req.ast, scope, { rng: state.rng, state });
       if (!result) return null; // Precondition failed
     }
   }
@@ -130,7 +153,7 @@ function runAiActions(state) {
     for (const actionDef of aiActions) {
       let matches = true;
       if (actionDef.condition) {
-        matches = !!evaluate(actionDef.condition.ast, scope, { rng: current.rng });
+        matches = !!evaluate(actionDef.condition.ast, scope, { rng: current.rng, state: current });
       }
       if (matches) {
         current = applyEffects(current, actionDef.effects, scope);
@@ -154,7 +177,7 @@ function checkConditions(state) {
   // Check loss conditions first
   if (world.loss_conditions) {
     for (const cond of world.loss_conditions) {
-      if (evaluate(cond.ast, scope, { rng: state.rng })) {
+      if (evaluate(cond.ast, scope, { rng: state.rng, state })) {
         return { ...state, terminal: 'lose', terminalReason: cond.source };
       }
     }
@@ -163,7 +186,7 @@ function checkConditions(state) {
   // Check win conditions
   if (world.win_conditions) {
     for (const cond of world.win_conditions) {
-      if (evaluate(cond.ast, scope, { rng: state.rng })) {
+      if (evaluate(cond.ast, scope, { rng: state.rng, state })) {
         return { ...state, terminal: 'win', terminalReason: cond.source };
       }
     }
@@ -192,13 +215,25 @@ export function dispatch(state, action) {
     newState = handlePlayerAction(state, action.trigger);
     if (!newState) return state; // Action not found or precondition failed
   } else if (action.type === 'move') {
-    // Legacy move — check if there's a DSL move action for this direction
-    const dirMap = { n: 'move_n', s: 'move_s', e: 'move_e', w: 'move_w' };
-    const trigger = dirMap[action.dir];
-    if (trigger) {
-      const dslResult = handlePlayerAction(state, trigger);
-      if (dslResult) {
-        newState = dslResult;
+    const dirDeltas = { n: { dx: 0, dy: -1 }, s: { dx: 0, dy: 1 }, e: { dx: 1, dy: 0 }, w: { dx: -1, dy: 0 } };
+    const inputData = {
+      dir: action.dir,
+      ...(dirDeltas[action.dir] || { dx: 0, dy: 0 }),
+    };
+    // Try generic 'move' trigger with direction injected into scope
+    const genericResult = handlePlayerAction(state, 'move', inputData);
+    if (genericResult) {
+      newState = genericResult;
+    }
+    // Try direction-specific triggers (move_n, etc.)
+    if (!newState) {
+      const dirMap = { n: 'move_n', s: 'move_s', e: 'move_e', w: 'move_w' };
+      const trigger = dirMap[action.dir];
+      if (trigger) {
+        const dslResult = handlePlayerAction(state, trigger, inputData);
+        if (dslResult) {
+          newState = dslResult;
+        }
       }
     }
     // Fall back to built-in move handler

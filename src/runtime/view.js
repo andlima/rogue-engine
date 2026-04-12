@@ -3,10 +3,11 @@
  * Each cell is { ch, color } where ch is the display character.
  *
  * Renders entities (beings and items) on top of the tile map.
+ * If fovMap is provided, only visible tiles are rendered; others are blank.
  */
-export function getVisibleTiles(state, viewW, viewH) {
+export function getVisibleTiles(state, viewW, viewH, fovMap) {
   const { player, definition, entities } = state;
-  const { map } = definition;
+  const map = state.map || definition.map;
   const playerArchetype = definition._index.beings[player.archetype];
 
   const halfW = Math.floor(viewW / 2);
@@ -19,7 +20,7 @@ export function getVisibleTiles(state, viewW, viewH) {
   if (entities) {
     for (const e of entities) {
       const key = `${e.x},${e.y}`;
-      entityAt[key] = e;
+      if (!entityAt[key]) entityAt[key] = e;
     }
   }
 
@@ -35,6 +36,9 @@ export function getVisibleTiles(state, viewW, viewH) {
       const my = startY + vy;
 
       if (!map || mx < 0 || mx >= map.width || my < 0 || my >= map.height) {
+        row.push({ ch: ' ', color: null });
+      } else if (fovMap && !fovMap.has(`${mx},${my}`)) {
+        // Not visible — show blank
         row.push({ ch: ' ', color: null });
       } else if (mx === player.x && my === player.y) {
         let glyph = playerArchetype.glyph;
@@ -74,7 +78,7 @@ export function getVisibleTiles(state, viewW, viewH) {
         } else {
           const tile = map.tiles[my][mx];
           let ch = tile;
-          let color = tile === '#' ? 'gray' : 'white';
+          let color = tile === '#' ? 'gray' : (tile === '>' ? 'yellow' : 'white');
           if (renderingTiles?.[tile]) {
             const override = renderingTiles[tile];
             if (override.glyph) ch = override.glyph;
