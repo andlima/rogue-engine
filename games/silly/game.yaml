@@ -1,0 +1,564 @@
+# ─────────────────────────────────────────────────────────────
+# Silly Game — ported to rogue-engine's data-driven YAML DSL
+# ─────────────────────────────────────────────────────────────
+# Transcribed from andlima/silly-game (src/game.js, src/dungeon.js, src/fov.js).
+# Every constant and formula is data — no engine code was added for silly-game.
+
+meta:
+  id: silly-game
+  name: Silly Game
+  version: "1.0.0"
+  description: >
+    A five-level roguelike dungeon crawl. Fight monsters, collect gold,
+    find equipment, and descend the final staircase to escape.
+  player_archetype: player
+
+# ── Measurements ───────────────────────────────────────────────
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: max_hp
+    initial: 30
+  - id: max_hp
+    label: Max HP
+    min: 1
+    initial: 30
+  - id: attack
+    label: ATK
+    min: 0
+    initial: 5
+  - id: defense
+    label: DEF
+    min: 0
+    initial: 2
+  - id: gold
+    label: Gold
+    min: 0
+    initial: 0
+  - id: awareness
+    label: Awareness
+    min: 0
+    initial: 0
+  - id: min_gold
+    label: MinGold
+    min: 0
+    initial: 0
+  - id: max_gold
+    label: MaxGold
+    min: 0
+    initial: 0
+  # Stat tracking
+  - id: kills
+    label: Kills
+    min: 0
+    initial: 0
+  - id: damage_dealt
+    label: Dmg Dealt
+    min: 0
+    initial: 0
+  - id: damage_taken
+    label: Dmg Taken
+    min: 0
+    initial: 0
+  - id: food_used
+    label: Food Used
+    min: 0
+    initial: 0
+  - id: steps
+    label: Steps
+    min: 0
+    initial: 0
+  - id: gold_collected
+    label: Gold Got
+    min: 0
+    initial: 0
+  - id: idol_offerings
+    label: Offerings
+    min: 0
+    initial: 0
+  # Monster stagger cooldown (1 = skip next turn)
+  - id: cooldown
+    label: CD
+    min: 0
+    initial: 0
+
+# ── Beings ─────────────────────────────────────────────────────
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+    measurements:
+      hp: 30
+      max_hp: 30
+      attack: 5
+      defense: 2
+    tags: [player]
+
+  - id: rat
+    label: Rat
+    glyph: "r"
+    color: green
+    measurements:
+      hp: 5
+      attack: 2
+      defense: 0
+      awareness: 3
+      min_gold: 0
+      max_gold: 1
+    tags: [monster]
+
+  - id: skeleton
+    label: Skeleton
+    glyph: "s"
+    color: white
+    measurements:
+      hp: 10
+      attack: 4
+      defense: 1
+      awareness: 4
+      min_gold: 2
+      max_gold: 4
+    tags: [monster]
+
+  - id: bear
+    label: Bear
+    glyph: "B"
+    color: yellow
+    measurements:
+      hp: 20
+      attack: 6
+      defense: 3
+      awareness: 5
+      min_gold: 4
+      max_gold: 8
+    tags: [monster]
+
+  - id: dragon
+    label: Dragon
+    glyph: "D"
+    color: red
+    measurements:
+      hp: 30
+      attack: 8
+      defense: 4
+      awareness: 6
+      min_gold: 8
+      max_gold: 16
+    tags: [monster]
+
+# ── Items ──────────────────────────────────────────────────────
+items:
+  - id: dagger
+    label: Dagger
+    glyph: "/"
+    color: cyan
+    kind: equipment
+    properties:
+      slot: weapon
+      stat: attack
+      bonus: 2
+    tags: [equipment, weapon]
+
+  - id: sword
+    label: Sword
+    glyph: "/"
+    color: bright_cyan
+    kind: equipment
+    properties:
+      slot: weapon
+      stat: attack
+      bonus: 4
+    tags: [equipment, weapon]
+
+  - id: helmet
+    label: Helmet
+    glyph: "["
+    color: gray
+    kind: equipment
+    properties:
+      slot: helmet
+      stat: defense
+      bonus: 1
+    tags: [equipment, armor]
+
+  - id: shield
+    label: Shield
+    glyph: ")"
+    color: gray
+    kind: equipment
+    properties:
+      slot: shield
+      stat: defense
+      bonus: 2
+    tags: [equipment, armor]
+
+  - id: food
+    label: Food
+    glyph: "%"
+    color: green
+    kind: consumable
+    tags: [food]
+
+  - id: gold
+    label: Gold
+    glyph: "$"
+    color: yellow
+    kind: currency
+    tags: [currency]
+
+  - id: idol
+    label: Idol
+    glyph: "&"
+    color: magenta
+    kind: consumable
+    tags: [idol]
+
+# ── Actions ────────────────────────────────────────────────────
+actions:
+  player:
+    # Generic move — handles bump-attack, movement, and auto-pickup.
+    # The engine injects input.dx, input.dy, input.dir into scope.
+    - id: move
+      trigger: move
+      requires:
+        - "walkable(actor.x + input.dx, actor.y + input.dy)"
+      effects:
+        # ── Phase 1: Bump-attack ──
+        # Find a being at the target tile
+        - type: find_target
+          x: "actor.x + input.dx"
+          y: "actor.y + input.dy"
+          kind: being
+
+        # Calculate and apply damage to the monster
+        - type: apply
+          when: "target_found"
+          target: target
+          measurement: hp
+          delta: "-(max(0, actor.attack + actor.equip_attack - target.defense + random(-1, 1)))"
+        - type: message
+          when: "target_found"
+          text: "You hit the {target.label} for {damage} damage."
+        # Track damage dealt
+        - type: apply
+          when: "target_found"
+          target: actor
+          measurement: damage_dealt
+          delta: "result.delta"
+
+        # ── Phase 1b: Monster death ──
+        - type: message
+          when: "target_found and target.hp <= 0"
+          text: "The {target.label} is defeated!"
+        # Track kill
+        - type: apply
+          when: "target_found and target.hp <= 0"
+          target: actor
+          measurement: kills
+          delta: 1
+        # Drop gold
+        - type: apply
+          when: "target_found and target.hp <= 0"
+          target: actor
+          measurement: gold
+          delta: "random(target.min_gold, target.max_gold)"
+        - type: apply
+          when: "target_found and target.hp <= 0 and result.delta > 0"
+          target: actor
+          measurement: gold_collected
+          delta: "result.delta"
+        - type: message
+          when: "target_found and target.hp <= 0 and result.delta > 0"
+          text: "The {target.label} dropped {delta} gold."
+        # Remove dead monster
+        - type: remove
+          when: "target_found and target.hp <= 0"
+
+        # ── Phase 2: Movement (no monster at target) ──
+        - type: move
+          when: "not target_found"
+          dir: "input.dir"
+        - type: apply
+          when: "not target_found and result.moved"
+          target: actor
+          measurement: steps
+          delta: 1
+
+        # ── Phase 3: Auto-pickup (after moving) ──
+        # Find item at new position
+        - type: find_target
+          when: "not target_found and result.moved"
+          x: "actor.x"
+          y: "actor.y"
+          kind: item
+
+        # Gold pickup
+        - type: apply
+          when: "target_found and target.id == 'gold'"
+          target: actor
+          measurement: gold
+          delta: "2 * state.level"
+        - type: apply
+          when: "target_found and target.id == 'gold'"
+          target: actor
+          measurement: gold_collected
+          delta: "2 * state.level"
+        - type: message
+          when: "target_found and target.id == 'gold'"
+          text: "You pick up {delta} gold."
+        - type: remove
+          when: "target_found and target.id == 'gold'"
+
+        # Food pickup (goes to inventory)
+        - type: message
+          when: "target_found and target.id == 'food'"
+          text: "You pick up some food."
+        - type: pickup
+          when: "target_found and target.id == 'food'"
+
+        # Equipment auto-equip (only if upgrade)
+        - type: message
+          when: "target_found and target.itemKind == 'equipment' and target.properties.bonus > slot_bonus(target.properties.slot)"
+          text: "You equip a {target.label} (+{target.properties.bonus} {target.properties.stat})."
+        - type: equip
+          when: "target_found and target.itemKind == 'equipment' and target.properties.bonus > slot_bonus(target.properties.slot)"
+          from_ground: true
+
+    # Use food from inventory
+    - id: use_food
+      trigger: use_food
+      requires:
+        - "actor.hp < actor.max_hp"
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: 10
+        - type: apply
+          target: actor
+          measurement: food_used
+          delta: 1
+        - type: message
+          text: "You eat food and restore {delta} HP."
+
+    # Descend stairs
+    - id: descend
+      trigger: descend
+      requires:
+        - "tile_at(actor.x, actor.y) == '>'"
+      effects:
+        # Level 5 win
+        - type: message
+          when: "state.level >= 5"
+          text: "You descend the final staircase and escape the dungeon!"
+        - type: win
+          when: "state.level >= 5"
+          reason: "Escaped the dungeon!"
+        # Normal descent
+        - type: message
+          when: "state.level < 5"
+          text: "You descend deeper into the dungeon..."
+        - type: transition_level
+          when: "state.level < 5"
+          delta: 1
+        - type: generate_level
+          when: "state.level < 5"
+
+    # Interact with idol
+    - id: interact_idol
+      trigger: interact_idol
+      requires:
+        - "actor.gold >= actor.max_hp"
+      effects:
+        - type: find_target
+          x: "actor.x"
+          y: "actor.y"
+          kind: item
+        # Only interact if an idol is at our position
+        - type: apply
+          when: "target_found and target.id == 'idol'"
+          target: actor
+          measurement: gold
+          delta: "-(actor.max_hp)"
+        - type: apply
+          when: "target_found and target.id == 'idol'"
+          target: actor
+          measurement: max_hp
+          delta: 5
+        - type: set
+          when: "target_found and target.id == 'idol'"
+          target: actor
+          measurement: hp
+          value: "actor.max_hp"
+        - type: apply
+          when: "target_found and target.id == 'idol'"
+          target: actor
+          measurement: idol_offerings
+          delta: 1
+        - type: message
+          when: "target_found and target.id == 'idol'"
+          text: "You offer gold to the idol. Your vigor swells. (+5 max HP, fully healed)"
+        - type: remove
+          when: "target_found and target.id == 'idol'"
+
+    # Wait (no-op turn)
+    - id: wait
+      trigger: wait
+      effects:
+        - type: message
+          text: "You wait."
+
+  # ── Monster AI ─────────────────────────────────────────────
+  ai:
+    # 1. Cooldown recovery (skip turn after attacking)
+    - id: ai_cooldown
+      condition: "actor.cooldown > 0"
+      effects:
+        - type: set
+          target: actor
+          measurement: cooldown
+          value: 0
+
+    # 2. Melee attack (adjacent to player, manhattan ≤ 1)
+    - id: ai_attack
+      condition: "manhattan(actor.x, actor.y, target.x, target.y) <= 1"
+      effects:
+        - type: apply
+          target: target
+          measurement: hp
+          delta: "-(max(0, actor.attack - (target.defense + target.equip_defense) + random(-1, 1)))"
+        - type: message
+          text: "The {actor.label} hits you for {damage} damage."
+        - type: apply
+          target: target
+          measurement: damage_taken
+          delta: "result.delta"
+        - type: set
+          target: actor
+          measurement: cooldown
+          value: 1
+
+    # 3. Chase player (within awareness, line of sight)
+    - id: ai_chase
+      condition: "manhattan(actor.x, actor.y, target.x, target.y) <= actor.awareness and los(actor.x, actor.y, target.x, target.y)"
+      effects:
+        - type: move
+          dir: "dir_toward(actor.x, actor.y, target.x, target.y)"
+
+    # 4. Idle (always matches as fallback)
+    - id: ai_idle
+      effects: []
+
+# ── World ──────────────────────────────────────────────────────
+world:
+  levels:
+    count: 5
+
+  dungeon:
+    width: 80
+    height: 50
+    room_count: [5, 10]
+    room_size: [4, 10]
+    max_attempts: 200
+    corridor_style: l_shaped
+
+  spawn_rules:
+    - category: monsters
+      mode: per_room
+      count: "1 + floor(state.level / 2) + random(0, 1)"
+    - category: food
+      count: "1 + random(0, 1)"
+    - category: equipment
+      count: "1 + random(0, 1)"
+    - category: gold
+      count: "random(0, 1)"
+    - category: idol
+      count: 1
+      when: "state.level >= 2 and state.level <= 4"
+
+  spawn_tables:
+    monsters:
+      - id: rat
+        weight: 25
+      - id: skeleton
+        weight: 25
+      - id: bear
+        weight: 35
+        when: "state.level >= 3"
+      - id: dragon
+        weight: 15
+        when: "state.level >= 4"
+    food:
+      - id: food
+        weight: 1
+    equipment:
+      - id: dagger
+        weight: 25
+      - id: helmet
+        weight: 25
+      - id: sword
+        weight: 25
+        when: "state.level >= 3"
+      - id: shield
+        weight: 25
+        when: "state.level >= 3"
+    gold:
+      - id: gold
+        weight: 1
+    idol:
+      - id: idol
+        weight: 1
+
+  win_conditions:
+    - "false"
+
+  loss_conditions:
+    - "player.hp <= 0"
+
+# ── Rendering ──────────────────────────────────────────────────
+rendering:
+  tiles:
+    ">":
+      glyph: ">"
+      color: bright_yellow
+    "#":
+      glyph: "#"
+      color: gray
+    ".":
+      glyph: "."
+      color: white
+
+  beings:
+    player:
+      color: bright_white
+    rat:
+      color: bright_green
+    skeleton:
+      color: bright_white
+    bear:
+      color: bright_yellow
+    dragon:
+      color: bright_red
+
+  items:
+    gold:
+      color: bright_yellow
+    food:
+      color: bright_green
+    idol:
+      color: bright_magenta
+
+  status_rules:
+    - when: "actor.hp < 10"
+      glyph_color: red
+
+  hud:
+    measurements:
+      - hp
+      - { id: max_hp, label: "/" }
+      - attack
+      - defense
+      - gold
+    message_log_size: 5

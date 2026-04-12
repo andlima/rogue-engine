@@ -194,12 +194,19 @@ function validateItems(raw) {
       color: requireString(entry, 'color', path),
       kind,
       tags: [],
+      properties: {},
     };
     if (entry.tags != null) {
       if (!Array.isArray(entry.tags) || !entry.tags.every(t => typeof t === 'string')) {
         throw new SchemaError(`${path}.tags`, `must be an array of strings`);
       }
       item.tags = [...entry.tags];
+    }
+    if (entry.properties != null) {
+      if (typeof entry.properties !== 'object' || Array.isArray(entry.properties)) {
+        throw new SchemaError(`${path}.properties`, `must be an object`);
+      }
+      item.properties = { ...entry.properties };
     }
     return item;
   });
@@ -235,7 +242,7 @@ function validateMap(raw) {
         spawnY = y;
         return '.';
       }
-      if (ch !== '#' && ch !== '.') {
+      if (ch !== '#' && ch !== '.' && ch !== '>') {
         throw new SchemaError(`map.tiles[${y}][${x}]`, `unknown tile character '${ch}'`);
       }
       return ch;
@@ -293,7 +300,7 @@ function validateExpression(exprStr, path, context) {
   }
 
   // Validate path references
-  const SCOPE_ROOTS = new Set(['self', 'actor', 'target', 'tile', 'state', 'player']);
+  const SCOPE_ROOTS = new Set(['self', 'actor', 'target', 'tile', 'state', 'player', 'input', 'result', 'target_found']);
   const paths = collectPaths(ast);
   for (const parts of paths) {
     if (parts.length === 0) continue;
@@ -310,7 +317,9 @@ function validateExpression(exprStr, path, context) {
         const KNOWN_FIELDS = new Set([
           'x', 'y', 'name', 'label', 'glyph', 'color', 'kind',
           'tags', 'id', 'archetype', 'inventory', 'equipment',
-          'equipped', 'level',
+          'equipped', 'level', 'equip_attack', 'equip_defense',
+          'itemKind', 'properties', 'dir', 'dx', 'dy',
+          'delta', 'value', 'bonus', 'stat', 'slot', 'moved',
         ]);
         if (!KNOWN_FIELDS.has(field) && !measurementIds.has(field)) {
           const suggestion = nearMiss(field, [...measurementIds, ...KNOWN_FIELDS]);
@@ -344,6 +353,12 @@ function validateEffectObj(raw, path, context) {
   }
 
   const effect = { type };
+
+  // Optional conditional gate on any effect
+  if (raw.when != null) {
+    const ast = validateExpression(raw.when, `${path}.when`, context);
+    effect.when = { source: raw.when, ast };
+  }
 
   // Validate type-specific fields
   if (type === 'apply' || type === 'set') {
@@ -406,6 +421,7 @@ function validateEffectObj(raw, path, context) {
   if (type === 'equip') {
     effect.target = raw.target || 'actor';
     if (raw.slot) effect.slot = raw.slot;
+    if (raw.from_ground) effect.from_ground = true;
   }
 
   if (type === 'pickup') {
@@ -422,6 +438,22 @@ function validateEffectObj(raw, path, context) {
 
   if (type === 'win' || type === 'lose') {
     if (raw.reason != null) effect.reason = String(raw.reason);
+  }
+
+  if (type === 'find_target') {
+    if (raw.x != null) {
+      if (typeof raw.x === 'string') validateExpression(raw.x, `${path}.x`, context);
+      effect.x = raw.x;
+    }
+    if (raw.y != null) {
+      if (typeof raw.y === 'string') validateExpression(raw.y, `${path}.y`, context);
+      effect.y = raw.y;
+    }
+    effect.kind = raw.kind || 'being';
+  }
+
+  if (type === 'generate_level') {
+    // No extra fields required — reads world.dungeon and world.spawn_rules
   }
 
   return effect;
@@ -567,6 +599,10 @@ function validateWorld(raw, context) {
           validateExpression(entry.requires, `${ePath}.requires`, context);
           result.requires = entry.requires;
         }
+        if (entry.when != null) {
+          const ast = validateExpression(entry.when, `${ePath}.when`, context);
+          result.when = { source: entry.when, ast };
+        }
         return result;
       });
     }
@@ -591,6 +627,26 @@ function validateWorld(raw, context) {
     world.loss_conditions = raw.loss_conditions.map((expr, i) => {
       const ast = validateExpression(expr, `world.loss_conditions[${i}]`, context);
       return { source: expr, ast };
+    });
+  }
+
+  // Spawn rules for level generation
+  if (raw.spawn_rules != null) {
+    if (!Array.isArray(raw.spawn_rules)) {
+      throw new SchemaError('world.spawn_rules', 'must be an array');
+    }
+    world.spawn_rules = raw.spawn_rules.map((entry, i) => {
+      const path = `world.spawn_rules[${i}]`;
+      if (!entry || typeof entry !== 'object') {
+        throw new SchemaError(path, 'must be an object');
+      }
+      const rule = {
+        category: requireString(entry, 'category', path),
+        mode: entry.mode || 'per_level',
+      };
+      if (entry.count != null) rule.count = entry.count;
+      if (entry.when != null) rule.when = entry.when;
+      return rule;
     });
   }
 

@@ -1,0 +1,18 @@
+[
+  {
+    "label": "initial",
+    "turn": 0,
+    "px": 5,
+    "py": 7,
+    "hp": 30,
+    "kills": 0,
+    "steps": 0,
+    "gold": 0,
+    "damage_dealt": 0,
+    "inventory": [],
+    "equipment": {},
+    "entityCount": 6,
+    "lastMessage": null,
+    "terminal": null
+  }
+]
