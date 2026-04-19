@@ -346,6 +346,49 @@ actions:
     assert.equal(state.flowState, null, 'flow cleared');
     assert.equal(state.player.measurements.mp, 0, 'effects blocked — no mp subtraction');
   });
+
+  it('$origin resolves in effect expressions after flow commit', () => {
+    // Regression: commitFlow must not drop the implicit `$origin` binding
+    // when merging user bindings. Exercises $origin in two places:
+    //   (a) a message template placeholder
+    //   (b) an effect `when` expression
+    const YAML_ORIGIN = yamlFor(`
+keymap:
+  z: cast
+actions:
+  player:
+    - id: cast
+      flow:
+        - type: pick_tile
+          range: 5
+          bind: target_tile
+      effects:
+        - type: message
+          text: "from {$origin.x},{$origin.y}"
+        - type: message
+          text: "origin_was_4"
+          when: "$origin.x == 4"
+        - type: message
+          text: "should_not_fire"
+          when: "$origin.x == 0"
+`);
+    const def = loadFromString(YAML_ORIGIN);
+    let state = createState(def, 42);
+    state = { ...state, player: { ...state.player, x: 4, y: 3 } };
+    state = dispatch(state, { type: 'action', trigger: 'z' });
+    assert.ok(state.flowState);
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_tile', tile: { x: 1, y: 1 } });
+    assert.equal(state.flowState, null);
+    // Message template rendered $origin correctly:
+    assert.ok(
+      state.messages.includes('from 4,3'),
+      `expected 'from 4,3' in messages, got ${JSON.stringify(state.messages)}`,
+    );
+    // `when: $origin.x == 4` evaluated correctly — message fires:
+    assert.ok(state.messages.includes('origin_was_4'));
+    // `when: $origin.x == 0` would fire if $origin silently resolved to 0:
+    assert.ok(!state.messages.includes('should_not_fire'));
+  });
 });
 
 describe('flow runner: pick_option', () => {
@@ -1237,21 +1280,8 @@ actions:
   });
 
   it('rejects effect referencing a $name the flow does not bind', () => {
+    // Expression-bearing field (delta):
     const yaml = yamlFor(`
-actions:
-  player:
-    - id: foo
-      trigger: f
-      flow:
-        - type: pick_direction
-          bind: d
-      effects:
-        - type: message
-          text: "go $chosen_weapon"
-`);
-    // The $name is inside a message template, not an expression — but we also
-    // exercise binding validation via an expression-bearing field:
-    const yaml2 = yamlFor(`
 actions:
   player:
     - id: foo
@@ -1265,7 +1295,51 @@ actions:
           measurement: hp
           delta: "$chosen_weapon.bonus"
 `);
+    assert.throws(() => loadFromString(yaml), /unknown binding '\$chosen_weapon'/);
+
+    // Message template placeholder — must also be validated:
+    const yaml2 = yamlFor(`
+actions:
+  player:
+    - id: foo
+      trigger: f
+      flow:
+        - type: pick_direction
+          bind: d
+      effects:
+        - type: message
+          text: "go {$chosen_weapon.label}"
+`);
     assert.throws(() => loadFromString(yaml2), /unknown binding '\$chosen_weapon'/);
+  });
+
+  it('accepts implicit $origin/$actor bindings in message templates', () => {
+    const yaml = yamlFor(`
+actions:
+  player:
+    - id: foo
+      trigger: f
+      flow:
+        - type: pick_direction
+          bind: d
+      effects:
+        - type: message
+          text: "from {$origin.x},{$origin.y} via {$actor.name}"
+`);
+    assert.doesNotThrow(() => loadFromString(yaml));
+  });
+
+  it('rejects $name in message templates outside a flow-enabled action', () => {
+    const yaml = yamlFor(`
+actions:
+  player:
+    - id: foo
+      trigger: f
+      effects:
+        - type: message
+          text: "nope {$chosen_item}"
+`);
+    assert.throws(() => loadFromString(yaml), /binding references/);
   });
 
   it('rejects panel.on_select referencing an unknown action id', () => {

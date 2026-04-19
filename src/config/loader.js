@@ -379,6 +379,35 @@ function validateExpression(exprStr, path, context) {
   return ast;
 }
 
+/**
+ * Validate `$name` references inside a message template string.
+ * Templates use `{path}` placeholders (see handleMessage in effects.js).
+ * When a placeholder root starts with `$`, enforce the same flowBindings
+ * rules that validateExpression applies to expression fields — otherwise
+ * misspelled binding names silently render as `'???'` at runtime.
+ */
+function validateMessageTemplate(text, path, context) {
+  const flowBindings = context.flowBindings || null;
+  const IMPLICIT = new Set(['origin', 'actor', 'self', 'player']);
+  const re = /\{([^}]+)\}/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const parts = m[1].trim().split('.');
+    const root = parts[0];
+    if (!root.startsWith('$')) continue;
+    const bindName = root.slice(1);
+    if (IMPLICIT.has(bindName)) continue;
+    if (flowBindings && !flowBindings.has(bindName)) {
+      const known = [...flowBindings].map(n => '$' + n);
+      const hint = known.length ? ` (bound in this flow: ${known.join(', ')})` : '';
+      throw new SchemaError(path, `unknown binding '${root}'${hint}`);
+    }
+    if (!flowBindings) {
+      throw new SchemaError(path, `binding references ('${root}') are only valid inside flow-enabled actions`);
+    }
+  }
+}
+
 // ── Actions validation ───────────────────────────────────────────────────
 
 function validateEffectObj(raw, path, context) {
@@ -476,6 +505,7 @@ function validateEffectObj(raw, path, context) {
 
   if (type === 'message') {
     effect.text = requireString(raw, 'text', path);
+    validateMessageTemplate(effect.text, `${path}.text`, context);
   }
 
   if (type === 'transition_level') {

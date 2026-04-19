@@ -337,8 +337,10 @@ export function cancelFlow(state) {
  * in scope. Turn bookkeeping is left to the caller.
  */
 function commitFlow(state, action, bindings, ctx) {
+  // buildPlayerScope merges user bindings with implicit ones (origin, actor,
+  // self, player). Pass the updated bindings via a synthetic flowState so the
+  // merged _bindings is correct; do NOT overwrite it afterward.
   const scope = buildPlayerScope({ ...state, flowState: { ...state.flowState, bindings } });
-  scope._bindings = bindings;
 
   // Re-check `requires`
   if (action.requires && action.requires.length > 0) {
@@ -355,11 +357,7 @@ function commitFlow(state, action, bindings, ctx) {
   const applyEffectsFn = ctx && ctx.applyEffects;
   if (!applyEffectsFn) return { ...state, flowState: null };
 
-  // Inject $bindings into scope as both dollar-prefixed and plain for predicates
-  const liveScope = { ...scope };
-  liveScope._bindings = bindings;
-
-  let next = applyEffectsFn(state, action.effects || [], liveScope);
+  let next = applyEffectsFn(state, action.effects || [], scope);
   next = { ...next, flowState: null, _committedFlow: true };
   return next;
 }
