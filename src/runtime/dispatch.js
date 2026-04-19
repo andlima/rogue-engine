@@ -177,9 +177,13 @@ function handlePlayerAction(state, trigger, inputData) {
   // Flow-bearing actions enter flow state and wait for player input.
   if (actionDef.flow && actionDef.flow.length > 0) {
     // Check `requires` up front; a false precondition aborts before flow.
+    // Populate $origin so pre-flow requires can reference it (validation
+    // accepts $origin as an implicit binding in any flow-enabled scope).
+    const origin = { x: state.player.x, y: state.player.y };
     const scope = buildScope(state, state.player, null);
     if (inputData) scope.input = inputData;
-    scope._bindings = {};
+    scope._bindings = { origin };
+    scope.origin = origin;
     if (actionDef.requires && actionDef.requires.length > 0) {
       for (const req of actionDef.requires) {
         const result = evaluate(req.ast, scope, { rng: state.rng, state });

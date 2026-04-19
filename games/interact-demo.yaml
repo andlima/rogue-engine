@@ -68,7 +68,21 @@ tiles:
     color: yellow
     on_interact:
       - type: message
-        text: "You unlock the door and it swings open."
+        when: 'not has_item("key")'
+        text: "The door is locked. You need a key."
+      - type: transform_tile
+        when: 'has_item("key")'
+        char: "'"
+      - type: message
+        when: 'has_item("key")'
+        text: "You unlock the door; it swings open."
+      - type: consume
+        when: 'has_item("key")'
+        item: key
+  "'":
+    kind: door_open
+    glyph: "'"
+    color: brown
 
 keymap:
   q: quaff_potion
@@ -115,6 +129,12 @@ actions:
           target: actor
           measurement: mp
           delta: "-5"
+        - type: apply_area
+          origin: "$target_tile"
+          radius: 1
+          measurement: hp
+          delta: "-8"
+          exclude_actor: true
         - type: message
           text: "{actor.name} hurls a fireball."
 

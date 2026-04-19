@@ -115,6 +115,22 @@ player action that dispatches `actor.tile.on_interact` if present, or
 emits *"Nothing to interact with here."* otherwise. The latter does
 not consume a turn.
 
+Two effect types pair well with hooks and targeted flows:
+
+- **`apply_area`** — apply a measurement delta to every being within a
+  chebyshev radius of an origin tile. Useful for area-of-effect spells
+  like fireball. Fields: `origin` (tile expression, default = caster
+  tile), `radius` (positive integer), `measurement`, `delta`, and
+  optional `exclude_actor: true` to skip the caster.
+- **`transform_tile`** — mutate the map character at a tile. Fields:
+  `char` (the new character; its tile config carries kind/glyph/color),
+  optional `at` (tile expression; default = actor's tile). Use this to
+  swap a locked door for an open one, reveal secret passages, etc.
+
+Both effects honor per-effect `when:` gates, so authors can keep the
+hook schema as a flat effect list while still gating on predicates like
+`has_item("key")`.
+
 ## Flow state on GameState
 
 `GameState.flowState` is `null` when no flow is active, otherwise:

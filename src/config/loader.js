@@ -482,6 +482,52 @@ function validateEffectObj(raw, path, context) {
     effect.delta = raw.delta ?? 1;
   }
 
+  if (type === 'apply_area') {
+    effect.measurement = requireString(raw, 'measurement', path);
+    if (!context.measurementIds.has(effect.measurement)) {
+      throw new SchemaError(`${path}.measurement`, `unknown measurement '${effect.measurement}'`);
+    }
+    if (raw.origin != null) {
+      if (typeof raw.origin !== 'string') {
+        throw new SchemaError(`${path}.origin`, 'origin must be an expression string');
+      }
+      validateExpression(raw.origin, `${path}.origin`, context);
+      effect.origin = raw.origin;
+    }
+    if (raw.radius != null) {
+      if (typeof raw.radius === 'string') {
+        validateExpression(raw.radius, `${path}.radius`, context);
+      } else if (typeof raw.radius !== 'number') {
+        throw new SchemaError(`${path}.radius`, 'radius must be a number or expression string');
+      }
+      effect.radius = raw.radius;
+    } else {
+      effect.radius = 0;
+    }
+    if (raw.delta != null) {
+      if (typeof raw.delta === 'string') {
+        validateExpression(raw.delta, `${path}.delta`, context);
+      } else if (typeof raw.delta !== 'number') {
+        throw new SchemaError(`${path}.delta`, 'delta must be a number or expression string');
+      }
+      effect.delta = raw.delta;
+    } else {
+      effect.delta = 0;
+    }
+    if (raw.exclude_actor != null) effect.exclude_actor = !!raw.exclude_actor;
+  }
+
+  if (type === 'transform_tile') {
+    effect.char = requireString(raw, 'char', path);
+    if (raw.at != null) {
+      if (typeof raw.at !== 'string') {
+        throw new SchemaError(`${path}.at`, 'at must be an expression string');
+      }
+      validateExpression(raw.at, `${path}.at`, context);
+      effect.at = raw.at;
+    }
+  }
+
   if (type === 'win' || type === 'lose') {
     if (raw.reason != null) effect.reason = String(raw.reason);
   }
@@ -1058,15 +1104,9 @@ function validateUiHud(raw, _context) {
 
 // ── Duplicate-trigger ambiguity warning ──────────────────────────────────
 
-function detectDuplicateTriggers(playerActions, warnings) {
-  const byTrigger = new Map();
-  for (const a of playerActions) {
-    if (!a.trigger) continue;
-    if (!byTrigger.has(a.trigger)) byTrigger.set(a.trigger, []);
-    byTrigger.get(a.trigger).push(a);
-  }
-  for (const [trigger, list] of byTrigger.entries()) {
-    if (list.length < 2) continue;
+function detectDuplicateTriggers(playerActionsByTrigger, warnings) {
+  for (const [trigger, list] of Object.entries(playerActionsByTrigger)) {
+    if (!list || list.length < 2) continue;
     const unguarded = list.filter(a => !a.when);
     // Ambiguous if more than one has no `when`, or if all have no `when`.
     if (unguarded.length > 1) {
@@ -1128,9 +1168,7 @@ export function loadFromString(yamlString) {
   // Keymap: optional top-level `{ key: action_id }` routing
   const keymap = validateKeymap(raw.keymap, actions);
 
-  // Detect duplicate-trigger ambiguity across player actions (warning).
   const warnings = [];
-  detectDuplicateTriggers(actions.player, warnings);
 
   // Warn if any on_interact tile has no keymap entry for `interact`.
   if (tiles && Object.values(tiles).some(t => t.on_interact && t.on_interact.length > 0)) {
@@ -1188,6 +1226,10 @@ export function loadFromString(yamlString) {
       playerActionsByTrigger[t].push(a);
     }
   }
+
+  // Detect duplicate-trigger ambiguity across player actions (warning).
+  // Uses the resolved trigger index so keymap-routed bindings are included.
+  detectDuplicateTriggers(playerActionsByTrigger, warnings);
 
   return {
     meta,

@@ -319,15 +319,16 @@ export function evaluate(ast, scope, opts = {}) {
             warnings.push(`'where' requires a list on the left-hand side`);
             return [];
           }
-          const saved = 'item' in scope ? scope.item : undefined;
+          const hadItem = 'item' in scope;
+          const saved = scope.item;
           const result = [];
           for (const el of list) {
             scope.item = el;
             if (eval_(node.right)) result.push(el);
           }
           // Restore prior `item` binding (or clear)
-          if (saved === undefined) delete scope.item;
-          else scope.item = saved;
+          if (hadItem) scope.item = saved;
+          else delete scope.item;
           return result;
         }
         const left = eval_(node.left);

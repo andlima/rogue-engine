@@ -558,10 +558,109 @@ function createSpawnedEntity(id, x, y, definition) {
   return null;
 }
 
+/**
+ * Apply a measurement delta to every being within `radius` (chebyshev) of an
+ * origin tile. The origin is resolved from `effect.origin` (expression like
+ * `$target_tile` or `actor.tile`) or defaults to the actor's position.
+ * Each being that would be affected is iterated in turn; the player is
+ * included by default unless `exclude_actor: true` skips the caster.
+ */
+function handleApplyArea(state, effect, scope) {
+  let origin;
+  if (effect.origin) {
+    const resolved = evalField(effect.origin, scope, scope._rng);
+    if (resolved && typeof resolved === 'object' && resolved.x != null) {
+      origin = { x: resolved.x, y: resolved.y };
+    }
+  }
+  if (!origin) {
+    const actor = scope._rawActor || scope._rawPlayer;
+    origin = { x: actor?.x ?? 0, y: actor?.y ?? 0 };
+  }
+  const radius = Math.max(0, Math.floor(evalField(effect.radius ?? 0, scope, scope._rng)));
+  const mId = effect.measurement;
+  const mDef = state.definition._index.measurements[mId];
+  if (!mDef) return state;
+  const delta = evalField(effect.delta, scope, scope._rng);
+  const excludeActor = !!effect.exclude_actor;
+  const actor = scope._rawActor || scope._rawPlayer;
+
+  const inRange = (ex, ey) =>
+    Math.max(Math.abs(ex - origin.x), Math.abs(ey - origin.y)) <= radius;
+
+  let current = state;
+
+  // Player
+  if (!(excludeActor && actor === current.player) && inRange(current.player.x, current.player.y)) {
+    const currentVal = current.player.measurements[mId] ?? 0;
+    const newVal = clampMeasurement(currentVal + delta, mDef, current.player);
+    const newPlayer = {
+      ...current.player,
+      measurements: { ...current.player.measurements, [mId]: newVal },
+    };
+    current = { ...current, player: newPlayer };
+  }
+
+  // Beings
+  const beingIndexes = [];
+  for (let i = 0; i < current.entities.length; i++) {
+    const e = current.entities[i];
+    if (e.kind !== 'being') continue;
+    if (excludeActor && e === actor) continue;
+    if (inRange(e.x, e.y)) beingIndexes.push(i);
+  }
+  if (beingIndexes.length > 0) {
+    const newEntities = current.entities.slice();
+    for (const idx of beingIndexes) {
+      const being = newEntities[idx];
+      const currentVal = being.measurements[mId] ?? 0;
+      const newVal = clampMeasurement(currentVal + delta, mDef, being);
+      newEntities[idx] = {
+        ...being,
+        measurements: { ...being.measurements, [mId]: newVal },
+      };
+    }
+    current = { ...current, entities: newEntities };
+  }
+
+  return current;
+}
+
+/**
+ * Mutate the map tile at a position to a new character. The new char must
+ * be declared in the top-level `tiles:` section (or be one of the built-in
+ * chars) — its kind/glyph/color carry the post-transform rendering. The
+ * target position defaults to the actor's tile; `at: "$target_tile"` (or
+ * similar tile-valued expression) overrides it.
+ */
+function handleTransformTile(state, effect, scope) {
+  const map = state.map || state.definition.map;
+  if (!map) return state;
+  let x, y;
+  if (effect.at) {
+    const resolved = evalField(effect.at, scope, scope._rng);
+    if (resolved && typeof resolved === 'object' && resolved.x != null) {
+      x = resolved.x; y = resolved.y;
+    }
+  }
+  if (x == null || y == null) {
+    const actor = scope._rawActor || scope._rawPlayer;
+    x = actor?.x; y = actor?.y;
+  }
+  if (x == null || y == null) return state;
+  if (x < 0 || x >= map.width || y < 0 || y >= map.height) return state;
+  const newChar = String(effect.char ?? '.');
+  const newRow = Array.isArray(map.tiles[y]) ? [...map.tiles[y]] : map.tiles[y].split('');
+  newRow[x] = newChar;
+  const newTiles = map.tiles.map((r, i) => i === y ? newRow : r);
+  return { ...state, map: { ...map, tiles: newTiles } };
+}
+
 // ── Effect registry ──────────────────────────────────────────────────────
 
 const EFFECT_HANDLERS = {
   apply: handleApply,
+  apply_area: handleApplyArea,
   set: handleSet,
   move: handleMove,
   spawn: handleSpawn,
@@ -570,6 +669,7 @@ const EFFECT_HANDLERS = {
   equip: handleEquip,
   pickup: handlePickup,
   message: handleMessage,
+  transform_tile: handleTransformTile,
   transition_level: handleTransitionLevel,
   win: handleWin,
   lose: handleLose,

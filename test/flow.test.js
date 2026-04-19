@@ -500,7 +500,255 @@ actions:
   });
 });
 
+// ── pick_being ──────────────────────────────────────────────────────────
+
+describe('flow runner: pick_being', () => {
+  // A test map with the player surrounded by space; we inject beings manually
+  // into state.entities for each test. The keymap binds `a` to aim.
+  const YAML = `
+meta:
+  id: pick-being
+  name: Pick Being
+  version: "0.1.0"
+  player_archetype: hero
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: 20
+    initial: 20
+beings:
+  - id: hero
+    label: Hero
+    glyph: "@"
+    color: white
+    measurements: { hp: 20 }
+    tags: [player]
+  - id: goblin
+    label: Goblin
+    glyph: "g"
+    color: green
+    measurements: { hp: 6 }
+    tags: [monster]
+  - id: ally
+    label: Ally
+    glyph: "a"
+    color: blue
+    measurements: { hp: 6 }
+    tags: [ally]
+items: []
+map:
+  width: 10
+  height: 5
+  tiles:
+    - "##########"
+    - "#........#"
+    - "#...@....#"
+    - "#........#"
+    - "##########"
+keymap:
+  a: aim
+actions:
+  player:
+    - id: aim
+      flow:
+        - type: pick_being
+          range: 3
+          filter: 'being.has_tag("monster")'
+          bind: target_being
+      effects:
+        - type: message
+          text: "Target: {$target_being.label}"
+`;
+
+  function addBeing(state, beingDef) {
+    const ent = {
+      ...beingDef,
+      kind: 'being',
+      label: beingDef.label,
+      glyph: beingDef.glyph,
+      color: beingDef.color,
+      tags: [...(beingDef.tags || [])],
+      measurements: { ...(beingDef.measurements || {}) },
+      inventory: [],
+      equipment: Object.create(null),
+    };
+    return { ...state, entities: [...state.entities, ent] };
+  }
+
+  it('binds a being that matches the predicate', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Place a goblin within range (player is at (4, 2); goblin at (5, 2))
+    state = addBeing(state, {
+      id: 'goblin', label: 'Goblin', glyph: 'g', color: 'green',
+      tags: ['monster'], measurements: { hp: 6 }, x: 5, y: 2,
+    });
+    state = dispatch(state, { type: 'action', trigger: 'a' });
+    assert.ok(state.flowState, 'flow started');
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_being', tile: { x: 5, y: 2 } });
+    assert.equal(state.flowState, null, 'committed');
+    assert.ok(state.messages.at(-1).includes('Goblin'));
+  });
+
+  it('rejects a being that fails the predicate filter', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Place a non-monster ally within range
+    state = addBeing(state, {
+      id: 'ally', label: 'Ally', glyph: 'a', color: 'blue',
+      tags: ['ally'], measurements: { hp: 6 }, x: 5, y: 2,
+    });
+    state = dispatch(state, { type: 'action', trigger: 'a' });
+    const before = state;
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_being', tile: { x: 5, y: 2 } });
+    assert.strictEqual(state, before, 'ally rejected by predicate');
+    assert.ok(state.flowState, 'still in flow');
+  });
+
+  it('rejects a tile containing no being', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    state = dispatch(state, { type: 'action', trigger: 'a' });
+    const before = state;
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_being', tile: { x: 5, y: 2 } });
+    assert.strictEqual(state, before, 'empty tile rejected');
+  });
+
+  it('rejects a being out of range', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Goblin far away (chebyshev distance 5 from player)
+    state = addBeing(state, {
+      id: 'goblin', label: 'Goblin', glyph: 'g', color: 'green',
+      tags: ['monster'], measurements: { hp: 6 }, x: 9, y: 2,
+    });
+    // range is 3; distance to (9,2) from (4,2) is 5
+    state = { ...state, player: { ...state.player, x: 4, y: 2 } };
+    // Widen the map check — goblin is at x=9 which is within map bounds (width=10)
+    state = dispatch(state, { type: 'action', trigger: 'a' });
+    const before = state;
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_being', tile: { x: 9, y: 2 } });
+    assert.strictEqual(state, before, 'out-of-range being rejected');
+  });
+
+  it('cancellation leaves state unchanged and no turn consumed', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    state = addBeing(state, {
+      id: 'goblin', label: 'Goblin', glyph: 'g', color: 'green',
+      tags: ['monster'], measurements: { hp: 6 }, x: 5, y: 2,
+    });
+    const turn0 = state.turn;
+    state = dispatch(state, { type: 'action', trigger: 'a' });
+    state = dispatch(state, { type: 'flow_cancel' });
+    assert.equal(state.flowState, null);
+    assert.equal(state.turn, turn0, 'turn not advanced');
+  });
+});
+
 // ── Tile hooks ──────────────────────────────────────────────────────────
+
+describe('tile hooks: on_enter and on_stand', () => {
+  const YAML = `
+meta:
+  id: enter-stand-hooks
+  name: Enter/Stand Hooks
+  version: "0.1.0"
+  player_archetype: hero
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: 10
+    initial: 10
+beings:
+  - id: hero
+    label: Hero
+    glyph: "@"
+    color: white
+    measurements: { hp: 10 }
+    tags: [player]
+items: []
+map:
+  width: 6
+  height: 3
+  tiles:
+    - "######"
+    - "#@T.X#"
+    - "######"
+tiles:
+  T:
+    kind: trap
+    on_enter:
+      - type: message
+        text: "You triggered a trap."
+  X:
+    kind: pit
+    on_stand:
+      - type: message
+        text: "Pit ticks."
+keymap:
+  " ": interact
+`;
+
+  it('on_enter fires when the player moves onto the tile', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Player spawns at (1,1); T is at (2,1). Move east into T.
+    state = dispatch(state, { type: 'move', dir: 'e' });
+    assert.equal(state.player.x, 2);
+    assert.ok(state.messages.some(m => m.includes('trap')), 'on_enter fired');
+  });
+
+  it('on_enter does NOT fire when the move is blocked', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Move north into a wall — no movement, no hook.
+    state = dispatch(state, { type: 'move', dir: 'n' });
+    assert.equal(state.player.x, 1);
+    assert.equal(state.messages.length, 0);
+  });
+
+  it('on_stand fires when the player moves onto the tile (end of turn)', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Move player onto pit tile at (4, 1): east x3
+    state = dispatch(state, { type: 'move', dir: 'e' }); // to (2,1) - trap
+    state = dispatch(state, { type: 'move', dir: 'e' }); // to (3,1) - floor
+    state = dispatch(state, { type: 'move', dir: 'e' }); // to (4,1) - pit
+    assert.equal(state.player.x, 4);
+    // The last move should have fired on_stand on the pit tile.
+    assert.ok(state.messages.some(m => m.includes('Pit ticks')));
+  });
+
+  it('on_stand fires exactly once per turn, not per sub-step', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    // Position the player directly on the pit tile
+    state = { ...state, player: { ...state.player, x: 4, y: 1 } };
+    // Take exactly one turn by moving to a floor tile (3,1) — this is one
+    // turn. on_stand should NOT fire because the destination is floor.
+    state = dispatch(state, { type: 'move', dir: 'w' }); // to (3,1)
+    const pitCountAfterMove = state.messages.filter(m => m.includes('Pit ticks')).length;
+    assert.equal(pitCountAfterMove, 0, 'on_stand should not fire for tiles we left');
+    // Now move back onto the pit — this is one turn, should fire once.
+    state = dispatch(state, { type: 'move', dir: 'e' }); // to (4,1)
+    const pitCountAfterReturn = state.messages.filter(m => m.includes('Pit ticks')).length;
+    assert.equal(pitCountAfterReturn, 1, 'on_stand fires exactly once on the turn we land');
+  });
+
+  it('on_stand does NOT fire on a no-turn path (interact with no hook)', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    state = { ...state, player: { ...state.player, x: 4, y: 1 } };
+    const turn0 = state.turn;
+    // Interact on pit tile — pit has no on_interact, so it's a no-turn path.
+    state = dispatch(state, { type: 'interact' });
+    assert.equal(state.turn, turn0, 'no turn consumed on no-hook interact');
+    assert.ok(!state.messages.some(m => m.includes('Pit ticks')), 'on_stand skipped on no-turn path');
+  });
+});
 
 describe('tile hooks: on_interact', () => {
   const YAML = `
@@ -752,6 +1000,203 @@ describe('interact-demo game', () => {
     assert.equal(state.player.measurements.mp, initial.player.measurements.mp, 'no MP spent');
     assert.equal(state.messages.length, initial.messages.length, 'no messages pushed');
   });
+
+  it('fireball applies area damage in a 1-tile radius (excluding caster)', async () => {
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    let state = createState(def, 42);
+
+    // Place two goblins: one inside the blast, one outside. Give them
+    // enough HP that an 8-damage hit leaves a measurable non-clamped value.
+    const goblinDef = def._index.beings.goblin;
+    const baseGoblin = {
+      id: 'goblin', kind: 'being', label: goblinDef.label,
+      glyph: goblinDef.glyph, color: goblinDef.color, tags: [...goblinDef.tags],
+      inventory: [], equipment: Object.create(null),
+    };
+    const inside = { ...baseGoblin, x: 6, y: 3, measurements: { hp: 15 } };
+    const outside = { ...baseGoblin, x: 2, y: 2, measurements: { hp: 15 } };
+    state = { ...state, entities: [inside, outside] };
+
+    // Target (6, 2). Blast radius 1 covers x in [5,7], y in [1,3].
+    // `inside` at (6,3) is hit; `outside` at (2,2) is not.
+    state = dispatch(state, { type: 'action', trigger: 'z' });
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_option', option_id: 'fireball' });
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_tile', tile: { x: 6, y: 2 } });
+
+    assert.equal(state.flowState, null, 'flow committed');
+    const insideNow = state.entities.find(e => e.x === 6 && e.y === 3);
+    const outsideNow = state.entities.find(e => e.x === 2 && e.y === 2);
+    assert.equal(insideNow.measurements.hp, 7, 'in-blast goblin took 8 damage');
+    assert.equal(outsideNow.measurements.hp, 15, 'out-of-blast goblin unharmed');
+  });
+
+  it('unlock door: requires a key; transforms tile kind on success', async () => {
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    const keyItem = def._index.items.key;
+
+    // Case 1 — without a key, the door stays locked.
+    let state = createState(def, 42);
+    state = { ...state, player: { ...state.player, x: 10, y: 3 } };
+    state = dispatch(state, { type: 'interact' });
+    // Door tile unchanged.
+    let map1 = state.map || state.definition.map;
+    assert.equal(map1.tiles[3][10], 'D', 'door still locked (no key)');
+    assert.ok(state.messages.at(-1).toLowerCase().includes('locked'));
+
+    // Case 2 — with a key, interact unlocks: tile becomes "'" (door_open) and key is consumed.
+    state = createState(def, 42);
+    const keyInstance = {
+      id: 'key', kind: 'item', label: keyItem.label,
+      glyph: keyItem.glyph, color: keyItem.color, itemKind: keyItem.kind,
+      tags: [...keyItem.tags], properties: { ...keyItem.properties },
+    };
+    state = {
+      ...state,
+      player: { ...state.player, x: 10, y: 3, inventory: [keyInstance] },
+    };
+    state = dispatch(state, { type: 'interact' });
+    const map2 = state.map || state.definition.map;
+    assert.equal(map2.tiles[3][10], "'", 'tile transformed to door_open');
+    assert.equal(state.player.inventory.length, 0, 'key consumed');
+    assert.ok(state.messages.some(m => m.toLowerCase().includes('unlock')));
+  });
+});
+
+// ── apply_area and transform_tile effect tests ────────────────────────
+
+describe('effect: apply_area', () => {
+  const YAML = `
+meta:
+  id: area
+  name: Area
+  version: "0.1.0"
+  player_archetype: hero
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: 20
+    initial: 10
+beings:
+  - id: hero
+    label: Hero
+    glyph: "@"
+    color: white
+    measurements: { hp: 10 }
+    tags: [player]
+  - id: goblin
+    label: Goblin
+    glyph: "g"
+    color: green
+    measurements: { hp: 6 }
+    tags: [monster]
+items: []
+map:
+  width: 7
+  height: 3
+  tiles:
+    - "#######"
+    - "#..@..#"
+    - "#######"
+keymap:
+  b: blast
+actions:
+  player:
+    - id: blast
+      flow:
+        - type: pick_tile
+          range: 3
+          bind: target_tile
+      effects:
+        - type: apply_area
+          origin: "$target_tile"
+          radius: 1
+          measurement: hp
+          delta: "-4"
+`;
+
+  it('applies delta to all beings (including player) within chebyshev radius', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    const goblinDef = def._index.beings.goblin;
+    // Goblin at (5, 1) — distance 2 from player (3,1)
+    const goblin = {
+      id: 'goblin', kind: 'being', label: goblinDef.label,
+      glyph: goblinDef.glyph, color: goblinDef.color, tags: [...goblinDef.tags],
+      x: 5, y: 1, measurements: { hp: 6 },
+      inventory: [], equipment: Object.create(null),
+    };
+    state = { ...state, entities: [goblin] };
+    state = dispatch(state, { type: 'action', trigger: 'b' });
+    // Target (5,1) — radius 1 hits player? Player at (3,1) distance 2 — no.
+    // Hits goblin at (5,1) — yes.
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_tile', tile: { x: 5, y: 1 } });
+    assert.equal(state.flowState, null);
+    const goblinAfter = state.entities.find(e => e.x === 5 && e.y === 1);
+    assert.equal(goblinAfter.measurements.hp, 2, 'goblin took 4 damage');
+    assert.equal(state.player.measurements.hp, 10, 'player not hit');
+  });
+
+  it('includes the player by default when in blast radius', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    state = dispatch(state, { type: 'action', trigger: 'b' });
+    // Target the player's own tile — radius 1 covers the player.
+    state = dispatch(state, { type: 'flow_input', kind: 'pick_tile', tile: { x: 3, y: 1 } });
+    assert.equal(state.player.measurements.hp, 6, 'player hit by own blast');
+  });
+});
+
+describe('effect: transform_tile', () => {
+  const YAML = `
+meta:
+  id: transform
+  name: Transform
+  version: "0.1.0"
+  player_archetype: hero
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: 10
+    initial: 10
+beings:
+  - id: hero
+    label: Hero
+    glyph: "@"
+    color: white
+    measurements: { hp: 10 }
+    tags: [player]
+items: []
+map:
+  width: 5
+  height: 3
+  tiles:
+    - "#####"
+    - "#.@D#"
+    - "#####"
+tiles:
+  D:
+    kind: door_locked
+    on_interact:
+      - type: transform_tile
+        char: "'"
+  "'":
+    kind: door_open
+keymap:
+  " ": interact
+`;
+
+  it('mutates the map tile at the actor position by default', () => {
+    const def = loadFromString(YAML);
+    let state = createState(def, 42);
+    state = { ...state, player: { ...state.player, x: 3, y: 1 } };
+    const before = state.definition.map.tiles[1][3];
+    assert.equal(before, 'D');
+    state = dispatch(state, { type: 'interact' });
+    const after = (state.map || state.definition.map).tiles[1][3];
+    assert.equal(after, "'", 'tile replaced');
+  });
 });
 
 // ── Loader-validation tests for criterion 8 ────────────────────────────
@@ -867,5 +1312,31 @@ actions:
 `);
     const def = loadFromString(yaml);
     assert.ok(def.warnings.some(w => w.includes('duplicate trigger')));
+  });
+
+  it('warns on duplicate triggers when one action is keymap-routed', () => {
+    // `a` declares trigger "f". `b` has no explicit trigger but the keymap
+    // routes "f" to it. Both resolve to trigger "f" with no `when` — the
+    // warning must still fire.
+    const yaml = yamlFor(`
+keymap:
+  f: b
+actions:
+  player:
+    - id: a
+      trigger: f
+      effects:
+        - type: message
+          text: "a"
+    - id: b
+      effects:
+        - type: message
+          text: "b"
+`);
+    const def = loadFromString(yaml);
+    assert.ok(
+      def.warnings.some(w => w.includes('duplicate trigger')),
+      'expected a duplicate-trigger warning for keymap-routed collisions'
+    );
   });
 });
