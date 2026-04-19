@@ -51,16 +51,41 @@ Division or modulo by zero returns `0` and pushes a warning (no crash).
 
 ## Built-in Functions
 
-| Function               | Description                                       |
-|-----------------------|---------------------------------------------------|
-| `min(a, b)`           | Minimum of two values                             |
-| `max(a, b)`           | Maximum of two values                             |
-| `clamp(val, lo, hi)`  | Clamp value to range [lo, hi]                     |
-| `abs(x)`              | Absolute value                                    |
-| `floor(x)`            | Floor (round down)                                |
-| `ceil(x)`             | Ceiling (round up)                                |
-| `random(lo, hi)`      | Random integer in [lo, hi] inclusive (seeded RNG)  |
-| `roll(n, sides)`      | Roll n dice with given sides, return sum (seeded)  |
+| Function                                 | Description                                       |
+|------------------------------------------|---------------------------------------------------|
+| `min(a, b)`                              | Minimum of two values                             |
+| `max(a, b)`                              | Maximum of two values                             |
+| `clamp(val, lo, hi)`                     | Clamp value to range [lo, hi]                     |
+| `abs(x)`                                 | Absolute value                                    |
+| `floor(x)`                               | Floor (round down)                                |
+| `ceil(x)`                                | Ceiling (round up)                                |
+| `random(lo, hi)`                         | Random integer in [lo, hi] inclusive (seeded RNG)  |
+| `roll(n, sides)`                         | Roll n dice with given sides, return sum (seeded)  |
+| `manhattan(a, b)`                        | Manhattan distance between two tile-like objects  |
+| `chebyshev(a, b)`                        | Chebyshev (king-move) distance                    |
+| `euclidean(a, b)`                        | Euclidean distance (float)                        |
+| `in_range(a, b, r, metric = chebyshev)`  | Sugar: `<metric>(a, b) <= r`                      |
+| `line_of_sight(a, b)`                    | Boolean — unobstructed path between two tiles     |
+
+Each distance built-in accepts tile-like objects (`{ x, y }`). The four
+argument form `(x1, y1, x2, y2)` is also accepted for backward
+compatibility.
+
+## List operations
+
+### `where`
+
+`<list> where <predicate>` filters a list. The current element is bound
+as `item` inside the predicate. Typical uses:
+
+```
+actor.inventory where item.kind == "consumable"
+entities where item.kind == "being" and item.has_tag("undead")
+```
+
+`where` has the lowest precedence in the grammar and is intended for
+`data` / filter positions, not general arithmetic. A non-list LHS
+returns `[]` and pushes a warning.
 
 ## Scope
 
@@ -101,6 +126,22 @@ state.level           → current dungeon level
 actor.has_tag("undead")    → true if actor has the "undead" tag
 target.kind == "consumable" → true if target's kind is "consumable"
 ```
+
+### Flow binding references
+
+Inside a flow-enabled action, a step's output is available via a
+`$name` sugar. `$origin`, `$actor`, `$self`, `$player` are always
+available; other names are whatever the flow's steps declare via
+`bind:`.
+
+```
+$chosen_item.label         → the label of the item chosen in pick_item
+in_range($origin, tile, 5) → reticle constrained by the flow's origin
+$target_tile.x             → x coord of the tile the player picked
+```
+
+Referencing an unbound `$name` is a **load-time** error with a hint
+listing the bindings the flow *does* produce.
 
 ## Validation
 

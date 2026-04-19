@@ -89,6 +89,7 @@ export function createState(definition, seed) {
     map: generatedMap,
     terminal: null,
     terminalReason: null,
+    flowState: null,
   };
 }
 

@@ -136,6 +136,92 @@ export function getBeingAppearance(beingId, definition, state) {
   return { glyph, color };
 }
 
+// ── Interaction-flow surfaces ────────────────────────────────────────────
+
+/**
+ * Render a bordered panel with a title and rows. Returns a string.
+ *
+ * @param {object} panel — { title, columns: [{ header, width? }], rows: Array<string[]> }
+ * @param {number} cursor — index of the highlighted row (optional)
+ */
+export function drawPanel(panel, cursor = 0) {
+  const title = panel.title || '';
+  const columns = panel.columns || [];
+  const rows = panel.rows || [];
+
+  // Compute column widths
+  const widths = columns.map((col, i) => {
+    const headerW = (col.header || '').length;
+    const rowW = Math.max(0, ...rows.map(r => String(r[i] ?? '').length));
+    return Math.max(headerW, rowW, col.width || 0);
+  });
+
+  const totalInner = widths.reduce((s, w) => s + w, 0) + Math.max(0, (widths.length - 1) * 2);
+  const bar = '─'.repeat(Math.max(totalInner + 2, title.length + 2));
+  const top = `┌${bar}┐`;
+  const bottom = `└${bar}┘`;
+  const titleLine = `│ ${padRight(title, bar.length - 1)}│`;
+  const sep = `├${bar}┤`;
+
+  const headerRow = columns.length > 0
+    ? `│ ${columns.map((col, i) => padRight(col.header || '', widths[i])).join('  ')} │`
+    : null;
+
+  const rowLines = rows.map((r, i) => {
+    const marker = i === cursor ? '>' : ' ';
+    const cells = columns.map((_, ci) => padRight(String(r[ci] ?? ''), widths[ci])).join('  ');
+    return `│${marker}${cells} │`;
+  });
+
+  const lines = [top, titleLine];
+  if (headerRow) {
+    lines.push(sep, headerRow, sep);
+  } else {
+    lines.push(sep);
+  }
+  lines.push(...rowLines, bottom);
+  return lines.join('\n');
+}
+
+function padRight(s, n) {
+  s = String(s);
+  if (s.length >= n) return s.slice(0, n);
+  return s + ' '.repeat(n - s.length);
+}
+
+/**
+ * Render a prompt banner string (plain text with optional title/message).
+ */
+export function drawPrompt(prompt) {
+  if (!prompt) return '';
+  const parts = [];
+  if (prompt.title) parts.push(`[${prompt.title}]`);
+  if (prompt.message) parts.push(prompt.message);
+  return parts.join(' ');
+}
+
+/**
+ * Overlay a target reticle on a pre-rendered grid.
+ *
+ * @param {Array<Array<{ch, color}>>} grid
+ * @param {{ x, y }} viewOrigin — top-left map coord of the grid
+ * @param {{ x, y }} target — map coord to highlight
+ * @param {{ glyph, color }} indicator
+ * @returns {Array<Array<{ch, color}>>} — new grid
+ */
+export function drawReticle(grid, viewOrigin, target, indicator) {
+  if (!grid || !target) return grid;
+  const gy = target.y - viewOrigin.y;
+  const gx = target.x - viewOrigin.x;
+  if (gy < 0 || gy >= grid.length || gx < 0 || gx >= grid[0].length) return grid;
+  const result = grid.map(row => row.slice());
+  result[gy][gx] = {
+    ch: indicator?.glyph || '*',
+    color: indicator?.color || 'yellow',
+  };
+  return result;
+}
+
 /**
  * Get the effective glyph and color for an item entity.
  */

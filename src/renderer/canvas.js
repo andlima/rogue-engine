@@ -22,4 +22,26 @@ export class CanvasRenderer {
   draw(state) {
     throw new Error('CanvasRenderer.draw() is not implemented — see TODO link above');
   }
+
+  /**
+   * Draw a panel surface (inventory / menu). Accepts the same semantic
+   * descriptor shape the ANSI renderer consumes.
+   */
+  drawPanel(panel, cursor) {
+    throw new Error('CanvasRenderer.drawPanel() is not implemented — see TODO link above');
+  }
+
+  /**
+   * Draw a prompt banner.
+   */
+  drawPrompt(prompt) {
+    throw new Error('CanvasRenderer.drawPrompt() is not implemented — see TODO link above');
+  }
+
+  /**
+   * Overlay a target reticle while pick_tile / pick_being is active.
+   */
+  drawReticle(grid, viewOrigin, target, indicator) {
+    throw new Error('CanvasRenderer.drawReticle() is not implemented — see TODO link above');
+  }
 }

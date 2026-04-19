@@ -331,9 +331,21 @@ function handlePickup(state, effect, scope) {
 
 function handleMessage(state, effect, scope) {
   let text = effect.text || '';
-  // Template substitution: {actor.name}, {target.name}, {damage}, etc.
+  // Template substitution: {actor.name}, {target.name}, {damage}, {$chosen_item.label}, etc.
   text = text.replace(/\{([^}]+)\}/g, (_, path) => {
     const parts = path.trim().split('.');
+    // Flow binding refs: {$name...}
+    if (parts[0].startsWith('$')) {
+      const bindings = scope._bindings || {};
+      const bindName = parts[0].slice(1);
+      let cur = bindings[bindName];
+      if (cur == null) return '???';
+      for (let i = 1; i < parts.length; i++) {
+        if (cur == null) return '???';
+        cur = cur[parts[i]];
+      }
+      return cur ?? '???';
+    }
     // Check scope for special keys first
     if (parts.length === 1) {
       if (parts[0] === 'damage' || parts[0] === 'delta') return state._effectContext?.delta ?? 0;

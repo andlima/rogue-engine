@@ -45,8 +45,71 @@ const BUILTINS = {
     }
     return total;
   }],
-  // Manhattan distance between two points
-  manhattan: [4, 4, (args) => Math.abs(args[2] - args[0]) + Math.abs(args[3] - args[1])],
+  // Manhattan distance — supports (x1,y1,x2,y2) or (a,b) where a/b are tiles
+  manhattan: [2, 4, (args) => {
+    if (args.length === 2) {
+      const a = args[0], b = args[1];
+      return Math.abs((b?.x ?? 0) - (a?.x ?? 0)) + Math.abs((b?.y ?? 0) - (a?.y ?? 0));
+    }
+    return Math.abs(args[2] - args[0]) + Math.abs(args[3] - args[1]);
+  }],
+  // Chebyshev (king-move) distance — max of dx and dy. Supports (a,b) or (x1,y1,x2,y2).
+  chebyshev: [2, 4, (args) => {
+    if (args.length === 2) {
+      const a = args[0], b = args[1];
+      return Math.max(Math.abs((b?.x ?? 0) - (a?.x ?? 0)), Math.abs((b?.y ?? 0) - (a?.y ?? 0)));
+    }
+    return Math.max(Math.abs(args[2] - args[0]), Math.abs(args[3] - args[1]));
+  }],
+  // Euclidean distance.
+  euclidean: [2, 4, (args) => {
+    let dx, dy;
+    if (args.length === 2) {
+      const a = args[0], b = args[1];
+      dx = (b?.x ?? 0) - (a?.x ?? 0);
+      dy = (b?.y ?? 0) - (a?.y ?? 0);
+    } else {
+      dx = args[2] - args[0];
+      dy = args[3] - args[1];
+    }
+    return Math.sqrt(dx * dx + dy * dy);
+  }],
+  // in_range(a, b, r, metric?) — sugar over distance built-ins
+  in_range: [3, 4, (args) => {
+    const a = args[0], b = args[1], r = args[2];
+    const metric = args[3] || 'chebyshev';
+    const ax = a?.x ?? 0, ay = a?.y ?? 0;
+    const bx = b?.x ?? 0, by = b?.y ?? 0;
+    let dist;
+    if (metric === 'manhattan') dist = Math.abs(bx - ax) + Math.abs(by - ay);
+    else if (metric === 'euclidean') dist = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2);
+    else dist = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+    return dist <= r;
+  }],
+  // line_of_sight(from_tile, to_tile) — boolean
+  line_of_sight: [2, 2, (args, _rng, ctx) => {
+    const a = args[0], b = args[1];
+    const x1 = Math.floor(a?.x ?? 0), y1 = Math.floor(a?.y ?? 0);
+    const x2 = Math.floor(b?.x ?? 0), y2 = Math.floor(b?.y ?? 0);
+    const map = ctx?.state?.map || ctx?.state?.definition?.map;
+    if (!map) return false;
+    let dx = Math.abs(x2 - x1);
+    let dy = Math.abs(y2 - y1);
+    const sx = x1 < x2 ? 1 : -1;
+    const sy = y1 < y2 ? 1 : -1;
+    let err = dx - dy;
+    let cx = x1, cy = y1;
+    while (cx !== x2 || cy !== y2) {
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; cx += sx; }
+      if (e2 < dx) { err += dx; cy += sy; }
+      if ((cx !== x2 || cy !== y2) &&
+          (cx < 0 || cx >= map.width || cy < 0 || cy >= map.height || map.tiles[cy][cx] === '#')) {
+        return false;
+      }
+    }
+    return true;
+  }],
   // Cardinal direction from (x1,y1) toward (x2,y2).
   // Prefers the axis with the larger gap; horizontal on tie.
   dir_toward: [4, 4, (args, _rng, ctx) => {
@@ -172,6 +235,17 @@ export function evaluate(ast, scope, opts = {}) {
         return node.value;
 
       case 'ident': {
+        // Flow binding reference: $name resolves from scope._bindings
+        if (node.name.startsWith('$')) {
+          const bindName = node.name.slice(1);
+          if (scope._bindings && bindName in scope._bindings) {
+            return scope._bindings[bindName];
+          }
+          // Also check for direct scope presence (some hot-path bindings)
+          if (bindName in scope) return scope[bindName];
+          warnings.push(`Unknown binding '${node.name}'`);
+          return 0;
+        }
         // Check scope first
         if (node.name in scope) {
           return scope[node.name];
@@ -192,6 +266,22 @@ export function evaluate(ast, scope, opts = {}) {
         }
         if (cur.kind === 'ident') {
           parts.unshift(cur.name);
+          // Binding path: $name.foo.bar
+          if (parts[0].startsWith('$')) {
+            const bindName = parts[0].slice(1);
+            const bindings = scope._bindings || {};
+            const root = bindings[bindName] ?? scope[bindName];
+            if (root == null) {
+              warnings.push(`Unknown binding '${parts[0]}'`);
+              return 0;
+            }
+            const val = resolvePath(root, parts.slice(1));
+            if (val === undefined) {
+              warnings.push(`Unknown path '${parts.join('.')}'`);
+              return 0;
+            }
+            return val;
+          }
           const val = resolvePath(scope, parts);
           if (val === undefined) {
             warnings.push(`Unknown path '${parts.join('.')}'`);
@@ -220,6 +310,25 @@ export function evaluate(ast, scope, opts = {}) {
         if (node.op === 'or') {
           const l = eval_(node.left);
           return l ? l : eval_(node.right);
+        }
+        // List comprehension: `xs where <predicate>` — filters xs by the predicate
+        // with the current element bound as `item` in the scope.
+        if (node.op === 'where') {
+          const list = eval_(node.left);
+          if (!Array.isArray(list)) {
+            warnings.push(`'where' requires a list on the left-hand side`);
+            return [];
+          }
+          const saved = 'item' in scope ? scope.item : undefined;
+          const result = [];
+          for (const el of list) {
+            scope.item = el;
+            if (eval_(node.right)) result.push(el);
+          }
+          // Restore prior `item` binding (or clear)
+          if (saved === undefined) delete scope.item;
+          else scope.item = saved;
+          return result;
         }
         const left = eval_(node.left);
         const right = eval_(node.right);
