@@ -28,6 +28,7 @@
  */
 
 import { evaluate } from '../expressions/evaluator.js';
+import { resolveTileKind } from '../runtime/flow.js';
 
 // ── Scope helpers ────────────────────────────────────────────────────────
 
@@ -36,6 +37,19 @@ function buildResolverScope(state) {
   const actorView = player
     ? { ...player, ...(player.measurements || {}) }
     : null;
+  // Expose the current tile (with `kind` resolution) as `actor.tile` so
+  // tile-sensitive binding `when` expressions like
+  // `actor.tile.kind == "stairs_down"` resolve.
+  if (actorView && state.definition) {
+    const map = state.map || state.definition.map;
+    if (map && typeof player.x === 'number' && typeof player.y === 'number') {
+      const ch = map.tiles[player.y]?.[player.x];
+      actorView.tile = {
+        x: player.x, y: player.y, ch,
+        kind: resolveTileKind(state, ch),
+      };
+    }
+  }
   return {
     actor: actorView,
     self: actorView,

@@ -88,7 +88,7 @@ input:
   bindings:
     - { key: "q",     action: quaff_potion }
     - { key: "z",     action: cast_fireball }
-    - { key: ">",     action: descend_stairs, label: "Descend" }
+    - { key: ">",     action: descend_stairs, label: "Descend", when: 'actor.tile.kind == "stairs_down"' }
     - { key: ">",     action: no_stairs_here, when: 'actor.tile.kind != "stairs_down"', overlaps_with: "input.bindings[2]" }
     - { key: "SPACE", action: interact }
     # Meta-commands that stay active while a flow is running.

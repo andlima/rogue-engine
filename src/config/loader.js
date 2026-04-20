@@ -1662,7 +1662,11 @@ export function loadFromString(yamlString) {
   const playerActionsByTrigger = Object.create(null);
   for (const a of actions.player) {
     const triggers = [];
-    if (a.trigger) triggers.push(a.trigger);
+    // The action's own id is always a valid dispatch trigger. This lets
+    // callers that hold an action id (e.g. the CLI translating a resolved
+    // binding) dispatch without needing to know the legacy `trigger:` string.
+    triggers.push(a.id);
+    if (a.trigger && a.trigger !== a.id) triggers.push(a.trigger);
     // Keymap-based triggers: any key whose value matches this action's id
     // OR trigger. Both forms are accepted so authors can migrate gradually.
     if (keymap) {
