@@ -84,16 +84,26 @@ tiles:
     glyph: "'"
     color: brown
 
-keymap:
-  q: quaff_potion
-  z: cast_fireball
-  ">": descend_stairs
-  "?": no_stairs_here
-  " ": interact
+input:
+  bindings:
+    - { key: "q",     action: quaff_potion }
+    - { key: "z",     action: cast_fireball }
+    - { key: ">",     action: descend_stairs, label: "Descend" }
+    - { key: ">",     action: no_stairs_here, when: 'actor.tile.kind != "stairs_down"', overlaps_with: "input.bindings[2]" }
+    - { key: "SPACE", action: interact }
+    # Meta-commands that stay active while a flow is running.
+    - { key: "?",     action: open_help, context: flow }
+  help:
+    title: "Interact-demo Commands"
+    sections:
+      - { header: "Actions", actions: [quaff_potion, cast_fireball, descend_stairs, interact] }
+      - { header: "System",  actions: [open_help] }
 
 actions:
   player:
     - id: quaff_potion
+      label: "Quaff potion"
+      summary: "Drink a potion from your inventory"
       flow:
         - type: pick_item
           source: actor.inventory
@@ -108,6 +118,8 @@ actions:
           text: "{actor.name} quaffs a potion and heals."
 
     - id: cast_fireball
+      label: "Cast fireball"
+      summary: "Aim a 1-tile-radius fireball up to 5 tiles away (costs 5 MP)"
       requires:
         - "actor.mp >= 5"
       flow:
@@ -139,6 +151,8 @@ actions:
           text: "{actor.name} hurls a fireball."
 
     - id: descend_stairs
+      label: "Descend stairs"
+      summary: "Descend to a deeper level when standing on stairs"
       when: 'actor.tile.kind == "stairs_down"'
       effects:
         - type: transition_level

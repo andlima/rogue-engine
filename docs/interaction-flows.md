@@ -155,21 +155,19 @@ hook schema as a flat effect list while still gating on predicates like
 Effects never see the flow machinery; by the time they run, flows have
 collapsed into a normal effect pipeline.
 
-## Keymap
+## Input bindings
 
-The top-level `keymap:` section binds keys to action ids or triggers.
-Existing `trigger:` values still work; the keymap is the preferred form
-for new games.
+Key bindings live in the top-level `input:` section — see
+`docs/input-bindings.md` for the full schema, vocabulary, context stack,
+sequences, and validation rules. The legacy `keymap:` block is still
+accepted for back-compat and the legacy `trigger:` field on player
+actions continues to parse, but new games should use `input.bindings`.
 
-```yaml
-keymap:
-  q: quaff_potion          # action id
-  ">": descend_stairs
-  " ": interact            # built-in interact
-```
-
-Precedence: explicit `trigger:` fields are indexed first; keymap entries
-extend the trigger-to-action index for any matching id/trigger value.
+Flow-context meta-commands (bindings declared with `context: flow`)
+remain active while a flow is running. A key event is first offered
+to the flow runner; if the runner declines it (not an expected step
+input), resolution falls through to `input.bindings` in the `flow`
+context, then escalates to `map`.
 
 ## Loader validation
 

@@ -44,4 +44,22 @@ export class CanvasRenderer {
   drawReticle(grid, viewOrigin, target, indicator) {
     throw new Error('CanvasRenderer.drawReticle() is not implemented — see TODO link above');
   }
+
+  /**
+   * Render the generated help panel. Accepts the shape produced by
+   * `getHelpRows(definition, state)`. Shared contract — see
+   * docs/rendering.md.
+   */
+  drawHelpPanel(help) {
+    throw new Error('CanvasRenderer.drawHelpPanel() is not implemented — see TODO link above');
+  }
+
+  /**
+   * Render the one-line key-hint surface beneath the viewport while a
+   * flow or panel is active. Accepts the string produced by
+   * `getKeyHint(definition, state, intrinsic)`.
+   */
+  drawKeyHint(hint) {
+    throw new Error('CanvasRenderer.drawKeyHint() is not implemented — see TODO link above');
+  }
 }

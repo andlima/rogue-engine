@@ -37,3 +37,17 @@ map:
     - "#........#"
     - "#........#"
     - "##########"
+
+# Input bindings — the authoritative keymap. Every key the player can
+# press lives here. See docs/input-bindings.md for the full vocabulary.
+input:
+  bindings:
+    - { keys: [UP,    k], action: move_n }
+    - { keys: [DOWN,  j], action: move_s }
+    - { keys: [LEFT,  h], action: move_w }
+    - { keys: [RIGHT, l], action: move_e }
+  help:
+    title: "Commands"
+    sections:
+      - { header: "Move", actions: [move_n, move_s, move_e, move_w] }
+      - { header: "System", actions: [open_help] }

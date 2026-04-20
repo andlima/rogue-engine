@@ -5,7 +5,10 @@ import { createState } from './src/runtime/state.js';
 import { dispatch } from './src/runtime/dispatch.js';
 import { getVisibleTiles } from './src/runtime/view.js';
 import { computeFOV } from './src/runtime/fov.js';
-import { renderToString, renderStatus } from './src/renderer/ascii.js';
+import { renderToString, renderStatus, drawHelpPanel, drawKeyHint } from './src/renderer/ascii.js';
+import { resolve } from './src/input/resolver.js';
+import { getHelpRows, getKeyHint } from './src/input/help.js';
+import { normalizeTerminalInput } from './src/input/keys.js';
 
 const { values } = parseArgs({
   options: {
@@ -20,36 +23,69 @@ if (!values.game) {
 
 const definition = await loadFromFile(values.game);
 let state = createState(definition);
+let helpOpen = false;
+let inputState = {};
 
 const VIEW_W = 21;
 const VIEW_H = 15;
 
 function draw() {
-  // Clear screen
   process.stdout.write('\x1b[2J\x1b[H');
+  if (helpOpen) {
+    console.log(drawHelpPanel(getHelpRows(state.definition, state)));
+    console.log();
+    console.log('Press any key to close help');
+    return;
+  }
   const fovMap = state.map ? computeFOV(state.map, state.player.x, state.player.y) : undefined;
   const grid = getVisibleTiles(state, VIEW_W, VIEW_H, fovMap);
   console.log(renderToString(grid));
   console.log();
   console.log(renderStatus(state));
   console.log();
-  console.log('Move: arrow keys / WASD  |  Quit: q');
+  const hint = getKeyHint(state.definition, state, []);
+  if (hint) {
+    console.log(drawKeyHint(hint));
+  } else {
+    console.log('? help  ·  CTRL+c quit');
+  }
 }
 
-const KEY_MAP = {
-  w: 'n', W: 'n',
-  a: 'w', A: 'w',
-  s: 's', S: 's',
-  d: 'e', D: 'e',
-};
-
-// Arrow key escape sequences
-const ARROW_MAP = {
-  '\x1b[A': 'n', // up
-  '\x1b[B': 's', // down
-  '\x1b[C': 'e', // right
-  '\x1b[D': 'w', // left
-};
+// Translate a resolved binding into a dispatch action (or handle locally).
+function actOnBinding(binding) {
+  const id = binding.action;
+  switch (id) {
+    case 'quit':
+      process.stdout.write('\x1b[2J\x1b[H');
+      process.exit(0);
+      break;
+    case 'open_help':
+      helpOpen = true;
+      return;
+    case 'cancel':
+      if (helpOpen) { helpOpen = false; return; }
+      state = dispatch(state, { type: 'flow_cancel' });
+      return;
+    case 'move_n':
+      state = dispatch(state, { type: 'move', dir: 'n' });
+      return;
+    case 'move_s':
+      state = dispatch(state, { type: 'move', dir: 's' });
+      return;
+    case 'move_e':
+      state = dispatch(state, { type: 'move', dir: 'e' });
+      return;
+    case 'move_w':
+      state = dispatch(state, { type: 'move', dir: 'w' });
+      return;
+    case 'interact':
+      state = dispatch(state, { type: 'interact' });
+      return;
+    default:
+      state = dispatch(state, { type: 'action', trigger: id });
+      return;
+  }
+}
 
 draw();
 
@@ -57,15 +93,18 @@ process.stdin.setRawMode(true);
 process.stdin.resume();
 process.stdin.setEncoding('utf-8');
 
-process.stdin.on('data', (key) => {
-  if (key === 'q' || key === 'Q' || key === '\x03') {
-    process.stdout.write('\x1b[2J\x1b[H');
-    process.exit(0);
-  }
-
-  let dir = KEY_MAP[key] || ARROW_MAP[key];
-  if (dir) {
-    state = dispatch(state, { type: 'move', dir });
+process.stdin.on('data', (raw) => {
+  if (helpOpen) {
+    helpOpen = false;
     draw();
+    return;
   }
+  const key = normalizeTerminalInput(raw);
+  if (!key) return;
+  const res = resolve({ ...state, inputState }, { type: 'key', key });
+  inputState = res.inputState || {};
+  for (const action of res.actions) {
+    actOnBinding(action.binding);
+  }
+  draw();
 });

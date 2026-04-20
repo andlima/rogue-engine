@@ -4,6 +4,8 @@ import { parse as parseExpr, collectPaths, collectCalls, ExprSyntaxError } from 
 import { EFFECT_TYPES } from '../runtime/effects.js';
 import { BUILTIN_NAMES } from '../expressions/evaluator.js';
 import { validateStep as validateFlowStep, collectFlowBindings, STEP_TYPES } from '../runtime/flow.js';
+import { parseKey, tryParseKey, KeyParseError } from '../input/keys.js';
+import { BUILTIN_BINDINGS, BUILTIN_ACTION_IDS, BUILTIN_CONTEXTS } from '../input/builtin-bindings.js';
 
 /**
  * Validation error with key path and optional source line info.
@@ -353,7 +355,7 @@ function validateExpression(exprStr, path, context) {
           'equipped', 'level', 'equip_attack', 'equip_defense',
           'itemKind', 'properties', 'dir', 'dx', 'dy',
           'delta', 'value', 'bonus', 'stat', 'slot', 'moved',
-          'ch', 'has_being', 'tile',
+          'ch', 'has_being', 'tile', 'turn', 'debug',
         ]);
         // Permit free access on comprehension / flow locals whose structure
         // varies by caller (item.kind, being.hp, row.name, tile.kind, etc.)
@@ -610,6 +612,8 @@ function validateActions(raw, context) {
         id: requireString(entry, 'id', path),
         // `trigger` may be omitted if a top-level `keymap` routes a key to this id.
         trigger: typeof entry.trigger === 'string' ? entry.trigger : null,
+        label: typeof entry.label === 'string' ? entry.label : null,
+        summary: typeof entry.summary === 'string' ? entry.summary : null,
         requires: [],
         effects: [],
         flow: null,
@@ -1009,6 +1013,415 @@ function validateKeymap(raw, actions) {
   return map;
 }
 
+// ── Input bindings (criterion 1–9) ───────────────────────────────────────
+
+const DEFAULT_SEQUENCE_TIMEOUT_MS = 750;
+
+function normalizeBindingEntry(entry, path, knownActions, knownContexts, validateExpr) {
+  if (!entry || typeof entry !== 'object') {
+    throw new SchemaError(path, 'binding must be an object');
+  }
+  const { key, keys, sequence, action, context, when, label, disabled, overlaps_with } = entry;
+
+  const forms = [key != null, keys != null, sequence != null].filter(Boolean).length;
+  if (forms === 0) {
+    throw new SchemaError(path, 'binding must declare exactly one of `key`, `keys`, or `sequence`');
+  }
+  if (forms > 1) {
+    throw new SchemaError(path, 'binding must declare exactly one of `key`, `keys`, or `sequence` (got multiple)');
+  }
+
+  if (typeof action !== 'string' || action.length === 0) {
+    throw new SchemaError(`${path}.action`, 'required string field missing');
+  }
+  if (!knownActions.has(action)) {
+    const known = [...knownActions].slice(0, 20).join(', ');
+    throw new SchemaError(
+      `${path}.action`,
+      `unknown action id '${action}' (known: ${known}${knownActions.size > 20 ? ', …' : ''})`
+    );
+  }
+
+  const ctx = context == null ? 'map' : context;
+  if (typeof ctx !== 'string') {
+    throw new SchemaError(`${path}.context`, 'must be a string');
+  }
+  if (!knownContexts.has(ctx)) {
+    throw new SchemaError(
+      `${path}.context`,
+      `unknown context id '${ctx}' (known: ${[...knownContexts].join(', ')})`
+    );
+  }
+
+  const binding = {
+    context: ctx,
+    action,
+    disabled: !!disabled,
+    _source: 'game',
+    _path: path,
+  };
+  if (overlaps_with != null) binding.overlaps_with = overlaps_with;
+  if (typeof label === 'string') binding.label = label;
+
+  if (when != null) {
+    if (typeof when !== 'string') {
+      throw new SchemaError(`${path}.when`, 'must be an expression string');
+    }
+    binding.when = when;
+    binding.whenAst = validateExpr(when, `${path}.when`);
+  }
+
+  if (key != null) {
+    if (typeof key !== 'string') {
+      throw new SchemaError(`${path}.key`, 'must be a string');
+    }
+    try {
+      const parsed = parseKey(key);
+      binding.kind = 'key';
+      binding.keys = [parsed.canonical];
+    } catch (e) {
+      if (e instanceof KeyParseError) {
+        throw new SchemaError(`${path}.key`, e.message);
+      }
+      throw e;
+    }
+  } else if (keys != null) {
+    if (!Array.isArray(keys) || keys.length === 0) {
+      throw new SchemaError(`${path}.keys`, 'must be a non-empty array of key names');
+    }
+    const parsedList = keys.map((k, i) => {
+      if (typeof k !== 'string') {
+        throw new SchemaError(`${path}.keys[${i}]`, 'must be a string');
+      }
+      try {
+        return parseKey(k).canonical;
+      } catch (e) {
+        if (e instanceof KeyParseError) {
+          throw new SchemaError(`${path}.keys[${i}]`, e.message);
+        }
+        throw e;
+      }
+    });
+    binding.kind = 'key';
+    binding.keys = parsedList;
+  } else {
+    // sequence
+    if (!Array.isArray(sequence)) {
+      throw new SchemaError(`${path}.sequence`, 'must be an array');
+    }
+    if (sequence.length < 2) {
+      throw new SchemaError(`${path}.sequence`, 'sequence must contain at least two elements (use `key:` for single keys)');
+    }
+    const parsedSeq = sequence.map((k, i) => {
+      if (typeof k !== 'string') {
+        throw new SchemaError(`${path}.sequence[${i}]`, 'must be a string');
+      }
+      try {
+        const parsed = parseKey(k);
+        if (parsed.modifiers.length > 0) {
+          throw new SchemaError(
+            `${path}.sequence[${i}]`,
+            `modifier combos (e.g. '${parsed.canonical}') may not appear inside sequences; use a single-key binding instead`,
+          );
+        }
+        return parsed.canonical;
+      } catch (e) {
+        if (e instanceof SchemaError) throw e;
+        if (e instanceof KeyParseError) {
+          throw new SchemaError(`${path}.sequence[${i}]`, e.message);
+        }
+        throw e;
+      }
+    });
+    binding.kind = 'sequence';
+    binding.sequence = parsedSeq;
+  }
+
+  return binding;
+}
+
+function normalizeBuiltinBindings(knownActions, knownContexts) {
+  const out = [];
+  for (const b of BUILTIN_BINDINGS) {
+    const targets = b.context === '*'
+      ? [...BUILTIN_CONTEXTS]
+      : [b.context];
+    for (const ctx of targets) {
+      const parsed = parseKey(b.key);
+      out.push({
+        kind: 'key',
+        keys: [parsed.canonical],
+        context: ctx,
+        action: b.action,
+        disabled: false,
+        _source: 'builtin',
+        _path: `<builtin:${b.action}:${b.key}:${ctx}>`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Validate and normalize the `input:` section, merging legacy `trigger:`
+ * and `keymap:` forms and the engine's built-in bindings.
+ */
+function validateInput(raw, actions, keymap, context, warnings) {
+  // Collect known action ids — game's player actions plus built-ins plus
+  // anything keymap routes to (which may be plain triggers like 'move').
+  const knownActions = new Set([
+    ...actions.player.map(a => a.id),
+    ...BUILTIN_ACTION_IDS,
+  ]);
+  // Accept action IDs bound via `trigger:` field — keymap / legacy flows
+  // route through these.
+  for (const a of actions.player) {
+    if (a.trigger) knownActions.add(a.trigger);
+  }
+  if (keymap) {
+    for (const val of Object.values(keymap)) knownActions.add(val);
+  }
+
+  // Known contexts: built-ins plus any declared custom contexts.
+  const knownContexts = new Set(BUILTIN_CONTEXTS);
+  const customContexts = [];
+  const rawInput = raw && typeof raw === 'object' ? raw : {};
+
+  if (rawInput.contexts != null) {
+    if (!Array.isArray(rawInput.contexts)) {
+      throw new SchemaError('input.contexts', 'must be an array');
+    }
+    for (let i = 0; i < rawInput.contexts.length; i++) {
+      const entry = rawInput.contexts[i];
+      const path = `input.contexts[${i}]`;
+      if (!entry || typeof entry !== 'object') {
+        throw new SchemaError(path, 'must be an object');
+      }
+      const id = requireString(entry, 'id', path);
+      if (BUILTIN_CONTEXTS.has(id)) {
+        throw new SchemaError(`${path}.id`, `'${id}' is a built-in context and cannot be redefined`);
+      }
+      if (knownContexts.has(id)) {
+        throw new SchemaError(`${path}.id`, `duplicate context id '${id}'`);
+      }
+      knownContexts.add(id);
+      const whenExpr = requireString(entry, 'when', path);
+      const whenAst = validateExpression(whenExpr, `${path}.when`, context);
+      customContexts.push({ id, when: whenExpr, whenAst });
+    }
+  }
+
+  const gameBindings = [];
+  const validateExpr = (expr, p) => validateExpression(expr, p, context);
+
+  if (rawInput.bindings != null) {
+    if (!Array.isArray(rawInput.bindings)) {
+      throw new SchemaError('input.bindings', 'must be an array');
+    }
+    for (let i = 0; i < rawInput.bindings.length; i++) {
+      const path = `input.bindings[${i}]`;
+      const binding = normalizeBindingEntry(
+        rawInput.bindings[i],
+        path,
+        knownActions,
+        knownContexts,
+        validateExpr,
+      );
+      gameBindings.push(binding);
+    }
+  }
+
+  // Migrate legacy `trigger:` on actions.player.<id> — unless the game
+  // already declared an explicit input.bindings entry for the same action.
+  const legacyBindings = [];
+  const explicitActions = new Set(gameBindings.map(b => b.action));
+  for (const a of actions.player) {
+    if (!a.trigger || typeof a.trigger !== 'string') continue;
+    // Skip triggers that look like pseudo-names rather than key vocabulary.
+    // E.g. "attack", "move", "wait" are dispatch triggers, not physical keys.
+    const parsed = tryParseKey(a.trigger);
+    if (!parsed.ok) continue;
+    if (explicitActions.has(a.id)) {
+      warnings.push(
+        `actions.player.${a.id}: both 'trigger' and an explicit input.bindings entry target this action; trigger is ignored.`
+      );
+      continue;
+    }
+    legacyBindings.push({
+      kind: 'key',
+      keys: [parsed.canonical],
+      context: 'map',
+      action: a.id,
+      disabled: false,
+      _source: 'trigger',
+      _path: `actions.player.${a.id}.trigger`,
+    });
+  }
+
+  // Migrate legacy `keymap:` — if no explicit input.bindings entry targets
+  // the same action for the same key.
+  if (keymap) {
+    for (const [rawKey, val] of Object.entries(keymap)) {
+      const parsed = tryParseKey(rawKey);
+      if (!parsed.ok) {
+        // Leave unparseable keymap keys alone — legacy keymap never validated them
+        // through the key vocabulary, and the test suite relies on passing through
+        // entries like 'q' unchanged. tryParseKey returning !ok is impossible for
+        // single-char printables, so this branch only triggers for exotic entries.
+        continue;
+      }
+      // Skip if the same key+action already exists in game bindings
+      const dup = gameBindings.some(
+        b => b.context === 'map' && b.kind === 'key'
+          && b.keys.includes(parsed.canonical)
+          && (b.action === val),
+      );
+      if (dup) continue;
+      legacyBindings.push({
+        kind: 'key',
+        keys: [parsed.canonical],
+        context: 'map',
+        action: val,
+        disabled: false,
+        _source: 'keymap',
+        _path: `keymap.${rawKey}`,
+      });
+    }
+  }
+
+  const builtinBindings = normalizeBuiltinBindings(knownActions, knownContexts);
+
+  // Detect duplicates within each context — identical key / sequence.
+  // Load-time error when both entries are unguarded; warning when one has a
+  // `when` that the validator cannot prove mutually exclusive.
+  detectBindingConflicts(gameBindings, warnings);
+
+  // Merge: game entries first (so they win first-match), then legacy
+  // trigger/keymap entries, then built-ins at the tail.
+  const merged = [...gameBindings, ...legacyBindings, ...builtinBindings];
+
+  // Validate help section (criterion 1, 7, 8)
+  const helpCfg = validateHelp(rawInput.help, actions, merged);
+
+  const sequenceTimeoutMs = (() => {
+    const v = rawInput.sequence_timeout_ms;
+    if (v == null) return DEFAULT_SEQUENCE_TIMEOUT_MS;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
+      throw new SchemaError('input.sequence_timeout_ms', 'must be a positive number');
+    }
+    return v;
+  })();
+
+  return {
+    bindings: merged,
+    contexts: customContexts,
+    help: helpCfg,
+    sequence_timeout_ms: sequenceTimeoutMs,
+  };
+}
+
+function detectBindingConflicts(gameBindings, warnings) {
+  // Group by (context, kind, signature)
+  const groups = new Map();
+  for (const b of gameBindings) {
+    const sig = b.kind === 'sequence'
+      ? `seq:${b.sequence.join(',')}`
+      : `key:${b.keys.join('|')}`;
+    const groupKey = `${b.context}::${sig}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(b);
+  }
+  for (const [groupKey, list] of groups) {
+    if (list.length < 2) continue;
+    const unguarded = list.filter(b => !b.when && !b.overlaps_with);
+    if (unguarded.length > 1) {
+      const paths = list.map(b => b._path).join(' and ');
+      throw new SchemaError(
+        list[list.length - 1]._path,
+        `duplicate binding in context '${list[0].context}' for ${groupKey.split('::')[1]} — collides with ${paths}; add a distinguishing 'when' or different action`,
+      );
+    }
+    // Non-trivial `when` present — warn (can't prove mutually exclusive).
+    const acknowledged = list.some(b => b.overlaps_with);
+    if (!acknowledged) {
+      warnings.push(
+        `input.bindings: overlapping bindings in context '${list[0].context}' for ${groupKey.split('::')[1]} (${list.map(b => b._path).join(', ')}). Add an 'overlaps_with' field on the later entry to acknowledge the overlap.`
+      );
+    }
+  }
+}
+
+function validateHelp(raw, actions, bindings) {
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SchemaError('input.help', 'must be an object');
+  }
+  const help = {};
+  if (raw.title != null) {
+    if (typeof raw.title !== 'string') {
+      throw new SchemaError('input.help.title', 'must be a string');
+    }
+    help.title = raw.title;
+  }
+  const actionIds = new Set([
+    ...actions.player.map(a => a.id),
+    ...BUILTIN_ACTION_IDS,
+  ]);
+  const boundActions = new Set(bindings.map(b => b.action));
+
+  if (raw.sections != null) {
+    if (!Array.isArray(raw.sections)) {
+      throw new SchemaError('input.help.sections', 'must be an array');
+    }
+    help.sections = raw.sections.map((sec, i) => {
+      const path = `input.help.sections[${i}]`;
+      if (!sec || typeof sec !== 'object') {
+        throw new SchemaError(path, 'must be an object');
+      }
+      const header = typeof sec.header === 'string' ? sec.header : '';
+      const actionsList = sec.actions;
+      if (!Array.isArray(actionsList)) {
+        throw new SchemaError(`${path}.actions`, 'must be an array of action ids');
+      }
+      for (let j = 0; j < actionsList.length; j++) {
+        const aId = actionsList[j];
+        if (typeof aId !== 'string') {
+          throw new SchemaError(`${path}.actions[${j}]`, 'must be a string');
+        }
+        if (!actionIds.has(aId)) {
+          throw new SchemaError(
+            `${path}.actions[${j}]`,
+            `unknown action id '${aId}'`,
+          );
+        }
+      }
+      return { header, actions: [...actionsList] };
+    });
+  }
+  if (raw.hide != null) {
+    if (!Array.isArray(raw.hide)) {
+      throw new SchemaError('input.help.hide', 'must be an array');
+    }
+    help.hide = raw.hide.map((aId, i) => {
+      const path = `input.help.hide[${i}]`;
+      if (typeof aId !== 'string') {
+        throw new SchemaError(path, 'must be a string');
+      }
+      if (!actionIds.has(aId)) {
+        throw new SchemaError(path, `unknown action id '${aId}'`);
+      }
+      if (!boundActions.has(aId)) {
+        throw new SchemaError(
+          path,
+          `action '${aId}' has no binding — nothing to hide`,
+        );
+      }
+      return aId;
+    });
+  }
+  return help;
+}
+
 // ── UI (panels / prompts / hud) ──────────────────────────────────────────
 
 function validateUiPrompts(raw, context) {
@@ -1200,19 +1613,28 @@ export function loadFromString(yamlString) {
 
   const warnings = [];
 
-  // Warn if any on_interact tile has no keymap entry for `interact`.
-  if (tiles && Object.values(tiles).some(t => t.on_interact && t.on_interact.length > 0)) {
-    const hasInteractBinding = (keymap && Object.values(keymap).includes('interact'))
-      || actions.player.some(a => a.trigger === 'interact' || a.id === 'interact');
-    if (!hasInteractBinding) {
-      warnings.push(
-        `tiles: on_interact hooks defined but no key is bound to 'interact' in keymap — these hooks are unreachable.`
-      );
-    }
-  }
+  // Warn if any on_interact tile has no keymap / input.bindings entry for `interact`.
+  // (Run this check after validateInput so input.bindings is populated.)
 
   const world = validateWorld(raw.world, context);
   const rendering = validateRendering(raw.rendering, context);
+
+  // Input section — validated after actions + keymap so it can cross-check
+  // action ids and absorb the legacy `trigger:` / `keymap:` forms. The
+  // returned `input` carries the merged binding list (game + legacy +
+  // built-ins) and any custom contexts.
+  const input = validateInput(raw.input, actions, keymap, context, warnings);
+
+  // Warn if any on_interact tile has no binding for `interact`.
+  if (tiles && Object.values(tiles).some(t => t.on_interact && t.on_interact.length > 0)) {
+    const hasInteractBinding = input.bindings.some(b => b.action === 'interact' && !b.disabled)
+      || actions.player.some(a => a.trigger === 'interact' || a.id === 'interact');
+    if (!hasInteractBinding) {
+      warnings.push(
+        `tiles: on_interact hooks defined but no key is bound to 'interact' — these hooks are unreachable.`
+      );
+    }
+  }
 
   // UI panels: validated after actions so on_select can reference them.
   const ui = {
@@ -1250,6 +1672,17 @@ export function loadFromString(yamlString) {
         }
       }
     }
+    // input.bindings-based triggers: any binding whose `action` matches the
+    // action's id or trigger contributes its key(s) to the trigger index so
+    // dispatches continue to work by key name (legacy behaviour).
+    for (const b of input.bindings || []) {
+      if (b.kind !== 'key') continue;
+      if (b.context !== 'map') continue;
+      if (b.action !== a.id && b.action !== a.trigger) continue;
+      for (const k of b.keys) {
+        if (!triggers.includes(k)) triggers.push(k);
+      }
+    }
     for (const t of triggers) {
       if (!(t in playerActionByTrigger)) playerActionByTrigger[t] = a;
       if (!playerActionsByTrigger[t]) playerActionsByTrigger[t] = [];
@@ -1273,6 +1706,7 @@ export function loadFromString(yamlString) {
     rendering,
     ui,
     keymap,
+    input,
     warnings,
     _index: {
       measurements: measurementIndex,

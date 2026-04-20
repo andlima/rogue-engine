@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CanvasRenderer } from '../src/renderer/canvas.js';
-import { renderToString, renderStatus, renderMessages, getBeingAppearance, getItemAppearance, drawPanel, drawPrompt, drawReticle } from '../src/renderer/ascii.js';
+import { renderToString, renderStatus, renderMessages, getBeingAppearance, getItemAppearance, drawPanel, drawPrompt, drawReticle, drawHelpPanel, drawKeyHint } from '../src/renderer/ascii.js';
 
 describe('CanvasRenderer stub', () => {
   it('accepts rendering config in constructor', () => {
@@ -90,5 +90,38 @@ describe('Canvas renderer: flow-surface stubs', () => {
     assert.throws(() => r.drawPanel({}, 0), /not implemented/);
     assert.throws(() => r.drawPrompt({}), /not implemented/);
     assert.throws(() => r.drawReticle([], {}, {}, {}), /not implemented/);
+  });
+
+  it('drawHelpPanel and drawKeyHint throw not-implemented with TODO pointer', () => {
+    const r = new CanvasRenderer({});
+    assert.throws(() => r.drawHelpPanel({ title: 'Commands', sections: [] }), /not implemented/);
+    assert.throws(() => r.drawKeyHint('? help · ESC cancel'), /not implemented/);
+  });
+});
+
+describe('ANSI renderer: input-bindings surfaces', () => {
+  it('drawHelpPanel renders a bordered help screen with keys/labels/summaries', () => {
+    const out = drawHelpPanel({
+      title: 'Commands',
+      sections: [
+        {
+          header: 'Move',
+          rows: [
+            { keys: ['UP', 'k'], label: 'Move north', summary: 'Move one tile north' },
+          ],
+        },
+      ],
+    });
+    assert.ok(out.includes('Move'), 'section header present');
+    assert.ok(out.includes('UP/k'), 'alias keys rendered');
+    assert.ok(out.includes('Move north'), 'label rendered');
+    assert.ok(out.includes('tile north'), 'summary rendered');
+  });
+
+  it('drawKeyHint passes a plain string through', () => {
+    const hint = '↑/↓ select · ENTER confirm · ESC cancel';
+    assert.equal(drawKeyHint(hint), hint);
+    assert.equal(drawKeyHint(''), '');
+    assert.equal(drawKeyHint(null), '');
   });
 });
