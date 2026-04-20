@@ -6,10 +6,16 @@
  * `{ header, rows }` groups; ungrouped games collapse to a single
  * "Commands" group sorted by declaration order.
  *
- * Rules:
+ * Rules (per spec criterion 7):
  *  - Bindings listed in `input.help.hide` (by action id) are filtered out.
  *  - Bindings whose `when` explicitly references `state.debug` are
  *    filtered out unless `state.debug` is true.
+ *  - Other `when` guards (tile-kind, target-presence, etc.) do NOT filter
+ *    rows — those bindings stay discoverable in help and the resolver
+ *    decides at runtime whether they fire.
+ *  - Bindings that compare equal — same `(action, key combo)` — collapse
+ *    into a single row so built-ins registered with `context: '*'` (which
+ *    the loader expands per built-in context) don't repeat themselves.
  *  - Built-in bindings appear at the bottom of the default "Commands"
  *    group when no sections are declared.
  *  - Each row shows: `keys` (array of display strings), `label`
@@ -17,7 +23,6 @@
  *    (action.summary || "").
  */
 
-import { evaluate } from '../expressions/evaluator.js';
 import { BUILTIN_ACTIONS } from './builtin-bindings.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -58,6 +63,16 @@ function rowFor(binding, definition) {
   };
 }
 
+// Built-in bindings registered with `context: '*'` are expanded by the
+// loader into one entry per built-in context (map/panel/flow/targeting).
+// In the help screen we want a single row per (action id, key combo)
+// regardless of how many contexts share it — otherwise `open_help` would
+// appear N times in the System section. Game-authored duplicates with
+// identical key + action also collapse, since they would render identically.
+function dedupeKey(binding) {
+  return `${binding.action}\u0000${displayKeys(binding).join('/')}`;
+}
+
 // ── Filtering ────────────────────────────────────────────────────────────
 
 function shouldHide(binding, definition, state) {
@@ -68,20 +83,12 @@ function shouldHide(binding, definition, state) {
     const debug = !!(state?.debug ?? state?.flags?.debug);
     if (!debug) return true;
   }
-  if (binding.whenAst) {
-    // A generally-true `when` stays visible; one that evaluates false at the
-    // current state is filtered. This mirrors the resolver's visibility.
-    try {
-      const scope = {
-        actor: state?.player,
-        player: state?.player,
-        state: { level: state?.level, turn: state?.turn, debug: !!(state?.debug ?? state?.flags?.debug) },
-      };
-      if (!evaluate(binding.whenAst, scope, { rng: state?.rng, state })) return true;
-    } catch {
-      return true;
-    }
-  }
+  // Other `when` guards (e.g. `actor.tile.kind == "stairs_down"`) are NOT
+  // applied here. Per spec criterion 7, only `input.help.hide` and
+  // debug-style guards filter rows from help. Tile-guarded or
+  // context-sensitive bindings should still be discoverable on the help
+  // panel even when their `when` is false in the current snapshot — the
+  // resolver decides whether they fire at runtime.
   return false;
 }
 
@@ -106,9 +113,14 @@ export function getHelpRows(definition, state = {}) {
   if (Array.isArray(help.sections) && help.sections.length > 0) {
     const sections = help.sections.map(sec => {
       const rows = [];
+      const seen = new Set();
       for (const actionId of sec.actions || []) {
         for (const b of bindings) {
-          if (b.action === actionId) rows.push(rowFor(b, definition));
+          if (b.action !== actionId) continue;
+          const key = dedupeKey(b);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rows.push(rowFor(b, definition));
         }
       }
       return { header: sec.header || '', rows };
@@ -118,7 +130,14 @@ export function getHelpRows(definition, state = {}) {
 
   // No declared sections — group everything under "Commands", sorted by
   // declaration order (bindings already preserve that).
-  const rows = bindings.map(b => rowFor(b, definition));
+  const seen = new Set();
+  const rows = [];
+  for (const b of bindings) {
+    const key = dedupeKey(b);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(rowFor(b, definition));
+  }
   return { title, sections: [{ header: title, rows }] };
 }
 

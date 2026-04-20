@@ -178,6 +178,52 @@ describe('help: snapshot of games/silly/game.yaml', () => {
     assert.ok(systemRow, 'open_help appears in System');
     assert.deepEqual(systemRow.keys, ['?']);
   });
+
+  it('does not duplicate built-in bindings registered with context "*"', async () => {
+    // BUILTIN_BINDINGS for `open_help` use `context: '*'`, which the loader
+    // expands into one entry per built-in context. The help renderer must
+    // collapse those back to a single row per (action, key combo).
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'silly', 'game.yaml'));
+    const help = getHelpRows(def, {});
+    const allRows = help.sections.flatMap(s => s.rows);
+    const helpRows = allRows.filter(r => r.actionId === 'open_help');
+    assert.equal(helpRows.length, 1, `expected exactly one open_help row, got ${helpRows.length}`);
+  });
+});
+
+describe('help: interact-demo with tile-guarded bindings', () => {
+  it('shows `descend_stairs` when standing on a stairs_down tile', async () => {
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    // The map places `>` at (10, 6). Place the player there and confirm the
+    // tile-guarded binding `when: actor.tile.kind == "stairs_down"` evaluates
+    // true and the row is included.
+    const onStairs = {
+      definition: def,
+      player: { x: 10, y: 6 },
+      level: 1, turn: 0,
+    };
+    const help = getHelpRows(def, onStairs);
+    const ids = help.sections.flatMap(s => s.rows.map(r => r.actionId));
+    assert.ok(ids.includes('descend_stairs'), 'descend_stairs visible on stairs');
+  });
+
+  it('does not silently hide tile-guarded bindings when state lacks a player', async () => {
+    // When the help panel is opened without a populated player/state (e.g.
+    // tests, early-boot), a `when` referencing actor.tile must NOT cause the
+    // row to vanish — default to "show" so authors don't see an empty help.
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    const help = getHelpRows(def, {});
+    const ids = help.sections.flatMap(s => s.rows.map(r => r.actionId));
+    assert.ok(ids.includes('descend_stairs'), 'descend_stairs row survives missing scope');
+  });
+
+  it('does not duplicate the `?` open_help row even when both the game and a built-in bind it', async () => {
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    const help = getHelpRows(def, {});
+    const allRows = help.sections.flatMap(s => s.rows);
+    const helpRows = allRows.filter(r => r.actionId === 'open_help');
+    assert.equal(helpRows.length, 1, `expected exactly one open_help row, got ${helpRows.length}`);
+  });
 });
 
 describe('help: getKeyHint', () => {
