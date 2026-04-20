@@ -29,6 +29,20 @@ Interaction-flow additions:
   overlays a glyph (from `ui.hud.target_indicator`) over the map grid
   while `pick_tile` / `pick_being` is active.
 
+Input-bindings additions:
+
+- **Help panel** — `drawHelpPanel(help)` renders the generated help
+  screen. The `help` argument is the shape returned by
+  `getHelpRows(definition, state)`:
+  `{ title, sections: [{ header, rows: [{ keys, label, summary }] }] }`.
+  The help panel is never hand-authored; both renderers consume the
+  same descriptor.
+- **Key hint** — `drawKeyHint(hint)` renders the one-line key-hint
+  surface beneath the viewport while a flow or panel is active. The
+  `hint` argument is produced by `getKeyHint(definition, state,
+  intrinsic)` and combines step-intrinsic inputs (provided by the flow
+  runner) with the active context's meta-bindings.
+
 ## ANSI renderer
 
 The ANSI renderer (`src/renderer/ascii.js`) exposes:
@@ -39,6 +53,8 @@ The ANSI renderer (`src/renderer/ascii.js`) exposes:
 - `drawPanel(panel, cursor)` — bordered panel
 - `drawPrompt(prompt)` — prompt banner
 - `drawReticle(grid, viewOrigin, target, indicator)` — reticle overlay
+- `drawHelpPanel(help)` — generated help screen
+- `drawKeyHint(hint)` — key hint beneath the viewport
 
 All panel / prompt / reticle output is plain text; colors via ANSI
 escape codes.

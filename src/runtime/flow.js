@@ -172,6 +172,31 @@ const STEP_HANDLERS = {
 
 export const STEP_TYPES = new Set(Object.keys(STEP_HANDLERS));
 
+/**
+ * Return the current flow step descriptor, or null if no flow is active.
+ * CLI glue uses this to translate step-intrinsic key events into
+ * `flow_input` dispatches.
+ */
+export function getCurrentFlowStep(state) {
+  const flow = state.flowState;
+  if (!flow) return null;
+  const action = state.definition._index?.playerActions?.[flow.actionId];
+  return action?.flow?.[flow.stepIndex] ?? null;
+}
+
+/**
+ * Candidate list for the current flow step (pick_item / pick_option).
+ * Returns an empty array for steps that have no enumerable candidates.
+ */
+export function getCurrentFlowCandidates(state) {
+  const step = getCurrentFlowStep(state);
+  if (!step) return [];
+  const handler = STEP_HANDLERS[step.type];
+  if (!handler || typeof handler.candidates !== 'function') return [];
+  const scope = buildPlayerScope(state);
+  return handler.candidates(step, state, scope);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function buildTileView(state, tile) {

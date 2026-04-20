@@ -1073,6 +1073,45 @@ describe('interact-demo game', () => {
     assert.equal(outsideNow.measurements.hp, 15, 'out-of-blast goblin unharmed');
   });
 
+  it('binding dispatches resolve by action id (quaff/cast/descend have no legacy `trigger:`)', async () => {
+    // Regression: the loader indexes every player action under its id so
+    // CLI glue that dispatches `{ type: 'action', trigger: <actionId> }`
+    // against bindings whose `action` field holds an id keeps working even
+    // when the action does not declare a legacy `trigger:` string.
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    let state = createState(def, 42);
+    state = { ...state, player: { ...state.player, inventory: [{ id: 'potion', label: 'potion', kind: 'consumable' }] } };
+
+    // `quaff_potion` — no explicit trigger field in the YAML.
+    const quaff = dispatch(state, { type: 'action', trigger: 'quaff_potion' });
+    assert.ok(quaff.flowState, 'dispatch by action id started the quaff flow');
+    assert.equal(quaff.flowState.actionId, 'quaff_potion');
+
+    // `cast_fireball` — also dispatched by id.
+    const cast = dispatch(state, { type: 'action', trigger: 'cast_fireball' });
+    assert.ok(cast.flowState, 'dispatch by action id started the cast flow');
+    assert.equal(cast.flowState.actionId, 'cast_fireball');
+  });
+
+  it('`>` binding-level `when` picks descend_stairs only on stairs, else no_stairs_here', async () => {
+    // Regression: without a binding-level `when` on the first `>` entry,
+    // the resolver commits to descend_stairs before the fall-through entry
+    // (no_stairs_here) is considered.
+    const { resolve } = await import('../src/input/resolver.js');
+    const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
+    let state = createState(def, 42);
+
+    // On stairs (10, 6)
+    state = { ...state, player: { ...state.player, x: 10, y: 6 } };
+    const onStairs = resolve({ ...state, inputState: {} }, { type: 'key', key: '>' });
+    assert.equal(onStairs.actions[0]?.actionId, 'descend_stairs');
+
+    // Off stairs
+    state = { ...state, player: { ...state.player, x: 3, y: 2 } };
+    const offStairs = resolve({ ...state, inputState: {} }, { type: 'key', key: '>' });
+    assert.equal(offStairs.actions[0]?.actionId, 'no_stairs_here');
+  });
+
   it('unlock door: requires a key; transforms tile kind on success', async () => {
     const def = await loadFromFile(join(__dirname, '..', 'games', 'interact-demo.yaml'));
     const keyItem = def._index.items.key;

@@ -329,6 +329,8 @@ actions:
     # Use food from inventory
     - id: use_food
       trigger: use_food
+      label: "Eat food"
+      summary: "Eat food to restore HP (requires food in inventory)"
       requires:
         - "actor.hp < actor.max_hp"
         - "has_item('food')"
@@ -350,6 +352,8 @@ actions:
     # Descend stairs
     - id: descend
       trigger: descend
+      label: "Descend stairs"
+      summary: "Descend to the next level (only on a > tile)"
       requires:
         - "tile_at(actor.x, actor.y) == '>'"
       effects:
@@ -373,6 +377,8 @@ actions:
     # Interact with idol
     - id: interact_idol
       trigger: interact_idol
+      label: "Offer to idol"
+      summary: "Trade HP-worth of gold to an idol for +5 max HP"
       requires:
         - "actor.gold >= actor.max_hp"
       effects:
@@ -410,6 +416,8 @@ actions:
     # Wait (no-op turn)
     - id: wait
       trigger: wait
+      label: "Wait"
+      summary: "Pass a turn without moving"
       effects:
         - type: message
           text: "You wait."
@@ -566,3 +574,25 @@ rendering:
       - defense
       - gold
     message_log_size: 5
+
+# ── Input Bindings ─────────────────────────────────────────────────────
+# Authoritative keymap for silly-game. Every key the player can press is
+# declared here. The generated help screen (press `?`) reflects this list.
+input:
+  bindings:
+    # Movement — arrow keys and WASD aliases
+    - { keys: [UP,    w, k], action: move_n }
+    - { keys: [DOWN,  s, j], action: move_s }
+    - { keys: [LEFT,  a, h], action: move_w }
+    - { keys: [RIGHT, d, l], action: move_e }
+    # Actions
+    - { key: ">",     action: descend }
+    - { key: "e",     action: use_food }
+    - { key: "i",     action: interact_idol }
+    - { key: ".",     action: wait, label: "Wait" }
+  help:
+    title: "Silly Game — Commands"
+    sections:
+      - { header: "Move",    actions: [move_n, move_s, move_e, move_w] }
+      - { header: "Actions", actions: [descend, use_food, interact_idol, wait] }
+      - { header: "System",  actions: [open_help] }

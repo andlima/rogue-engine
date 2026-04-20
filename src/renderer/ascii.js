@@ -222,6 +222,53 @@ export function drawReticle(grid, viewOrigin, target, indicator) {
   return result;
 }
 
+// ── Help panel & key hint ─────────────────────────────────────────────────
+
+/**
+ * Render the generated help panel. Accepts the shape returned by
+ * `getHelpRows(definition, state)`:
+ *   { title, sections: [{ header, rows: [{ keys, label, summary }] }] }
+ *
+ * The rendering goes through the same `drawPanel` machinery the flow
+ * runner uses for item pickers, so both surfaces feel cohesive.
+ */
+export function drawHelpPanel(help) {
+  if (!help) return '';
+  const title = help.title || 'Commands';
+  const lines = [];
+  const sections = help.sections || [];
+  // Collect rows as panel-shaped data so drawPanel can lay them out.
+  // Each section yields a header row plus its rows.
+  for (const sec of sections) {
+    if (!sec.rows || sec.rows.length === 0) continue;
+    const panelRows = sec.rows.map(r => [
+      r.keys.join('/') || '',
+      r.label || '',
+      r.summary || '',
+    ]);
+    lines.push(drawPanel({
+      title: sec.header || title,
+      columns: [
+        { header: 'Key', width: 10 },
+        { header: 'Action', width: 18 },
+        { header: 'Description' },
+      ],
+      rows: panelRows,
+    }, -1));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render the one-line key-hint surface that sits beneath the viewport
+ * while a flow or panel is active. The `hint` argument is the string
+ * produced by `getKeyHint(definition, state, intrinsic)`.
+ */
+export function drawKeyHint(hint) {
+  if (!hint) return '';
+  return hint;
+}
+
 /**
  * Get the effective glyph and color for an item entity.
  */
