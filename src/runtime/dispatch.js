@@ -8,6 +8,7 @@
 
 import { evaluate } from '../expressions/evaluator.js';
 import { applyEffects } from './effects.js';
+import { resolvePlayerAction, beginFlow, advanceFlow, cancelFlow, resolveTileKind } from './flow.js';
 
 const DIRECTIONS = {
   n: { dx: 0, dy: -1 },
@@ -28,11 +29,60 @@ function handleMove(state, action) {
   if (nx < 0 || nx >= map.width || ny < 0 || ny >= map.height) return state;
   if (map.tiles[ny][nx] === '#') return state;
 
-  return {
+  let next = {
     ...state,
     turn: state.turn + 1,
     player: { ...state.player, x: nx, y: ny },
   };
+
+  // Fire the destination tile's `on_enter` hook (if any).
+  next = fireTileHook(next, 'on_enter', next.player);
+  return next;
+}
+
+/**
+ * Dispatch a tile interaction hook for a being standing on a tile.
+ * Each hook is a list of standard effects; they run in the actor's scope.
+ */
+function fireTileHook(state, hookName, actor) {
+  const tilesCfg = state.definition.tiles;
+  if (!tilesCfg) return state;
+  const map = state.map || state.definition.map;
+  if (!map) return state;
+  const ch = map.tiles[actor.y]?.[actor.x];
+  const cfg = tilesCfg[ch];
+  if (!cfg || !cfg[hookName] || cfg[hookName].length === 0) return state;
+
+  const scope = buildScope(state, actor, null);
+  scope._bindings = state.flowState?.bindings || {};
+  return applyEffects(state, cfg[hookName], scope);
+}
+
+/**
+ * Handle the built-in `interact` player action.
+ *
+ * Desugars to: run the current tile's `on_interact` effects if present,
+ * else push a message indicating nothing happens. Never consumes a turn
+ * if there's no hook.
+ */
+function handleInteract(state) {
+  const tilesCfg = state.definition.tiles;
+  const map = state.map || state.definition.map;
+  if (!map) return null;
+  const { x, y } = state.player;
+  const ch = map.tiles[y]?.[x];
+  const cfg = tilesCfg?.[ch];
+  if (!cfg || !cfg.on_interact || cfg.on_interact.length === 0) {
+    // Not a turn-consumer: push a message but don't advance the turn.
+    return {
+      ...state,
+      messages: [...(state.messages || []), 'Nothing to interact with here.'],
+      _noTurn: true,
+    };
+  }
+  const scope = buildScope(state, state.player, null);
+  scope._bindings = state.flowState?.bindings || {};
+  return applyEffects(state, cfg.on_interact, scope);
 }
 
 /**
@@ -70,6 +120,18 @@ function entityView(entity) {
  */
 function buildScope(state, actor, target) {
   const actorView = entityView(actor);
+  // Expose the current tile (with `kind` resolution) as `actor.tile` so
+  // context-sensitive `when` expressions like `actor.tile.kind == "stairs_down"`
+  // resolve.
+  const map = state.map || state.definition.map;
+  if (map && actorView) {
+    const ch = map.tiles[actor.y]?.[actor.x];
+    actorView.tile = {
+      x: actor.x, y: actor.y,
+      ch,
+      kind: resolveTileKind(state, ch),
+    };
+  }
   const targetView = target ? entityView(target) : actorView;
   // Compute stable indices: -1 means player, >= 0 means index in state.entities
   const actorIdx = actor === state.player ? -1 : state.entities.indexOf(actor);
@@ -101,10 +163,35 @@ function buildScope(state, actor, target) {
  * Execute a defined player action by trigger.
  * If inputData is provided (e.g. direction for move), it is added to scope
  * as scope.input with { dir, dx, dy }.
+ *
+ * If the action has a non-empty `flow`, this initializes the flow state
+ * instead of firing effects. Flow steps are advanced via `flow_input`
+ * dispatches.
  */
 function handlePlayerAction(state, trigger, inputData) {
-  const actionDef = state.definition._index.playerActionByTrigger[trigger];
-  if (!actionDef) return null;
+  // `when`-aware resolution honors multiple actions bound to the same trigger.
+  const resolved = resolvePlayerAction(state, trigger);
+  if (!resolved) return null;
+  const { action: actionDef } = resolved;
+
+  // Flow-bearing actions enter flow state and wait for player input.
+  if (actionDef.flow && actionDef.flow.length > 0) {
+    // Check `requires` up front; a false precondition aborts before flow.
+    // Populate $origin so pre-flow requires can reference it (validation
+    // accepts $origin as an implicit binding in any flow-enabled scope).
+    const origin = { x: state.player.x, y: state.player.y };
+    const scope = buildScope(state, state.player, null);
+    if (inputData) scope.input = inputData;
+    scope._bindings = { origin };
+    scope.origin = origin;
+    if (actionDef.requires && actionDef.requires.length > 0) {
+      for (const req of actionDef.requires) {
+        const result = evaluate(req.ast, scope, { rng: state.rng, state });
+        if (!result) return null;
+      }
+    }
+    return beginFlow(state, actionDef);
+  }
 
   const scope = buildScope(state, state.player, null);
 
@@ -210,10 +297,43 @@ export function dispatch(state, action) {
 
   let newState;
 
+  // Flow cancellation: never consumes a turn, never runs effects.
+  if (action.type === 'flow_cancel') {
+    return cancelFlow(state);
+  }
+
+  // While a flow is active, only flow inputs / cancels advance it.
+  // Any other dispatch is ignored to keep the flow state machine clean.
+  if (state.flowState && action.type !== 'flow_input' && action.type !== 'open_panel') {
+    return state;
+  }
+
+  // Flow input: advance the current flow. On commit (last step) effects
+  // run and the full turn cycle (AI, conditions, turn increment) runs.
+  if (action.type === 'flow_input') {
+    if (!state.flowState) return state;
+    const advanced = advanceFlow(state, action, { applyEffects });
+    // If still mid-flow, no turn passes.
+    if (advanced.flowState) return advanced;
+    // If flow was cancelled (no commit), also no turn.
+    if (!advanced._committedFlow) return advanced;
+    newState = { ...advanced, _committedFlow: false };
+  }
+  // Opening a UI panel is free — not a turn-consuming action.
+  else if (action.type === 'open_panel') {
+    return state; // UI bookkeeping handled externally
+  }
+  // Interact: desugars to dispatching the tile's `on_interact` hook.
+  else if (action.type === 'interact') {
+    newState = handleInteract(state);
+    if (!newState) return state;
+  }
   // Try DSL-defined player actions first
-  if (action.type === 'action') {
+  else if (action.type === 'action') {
     newState = handlePlayerAction(state, action.trigger);
     if (!newState) return state; // Action not found or precondition failed
+    // Starting a flow is free — don't run AI or advance the turn.
+    if (newState.flowState && !state.flowState) return newState;
   } else if (action.type === 'move') {
     const dirDeltas = { n: { dx: 0, dy: -1 }, s: { dx: 0, dy: 1 }, e: { dx: 1, dy: 0 }, w: { dx: -1, dy: 0 } };
     const inputData = {
@@ -243,6 +363,18 @@ export function dispatch(state, action) {
     }
   } else {
     return state;
+  }
+
+  // `_noTurn` short-circuit: the action intentionally does not consume a
+  // turn (e.g. interact on a tile without a hook, or picking up a menu).
+  if (newState._noTurn) {
+    const { _noTurn, ...rest } = newState;
+    return rest;
+  }
+
+  // Fire on_stand hook for the player's current tile (once per turn).
+  if (!newState.terminal) {
+    newState = fireTileHook(newState, 'on_stand', newState.player);
   }
 
   // Run AI actions

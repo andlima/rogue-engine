@@ -3,6 +3,7 @@ import YAML from 'yaml';
 import { parse as parseExpr, collectPaths, collectCalls, ExprSyntaxError } from '../expressions/parser.js';
 import { EFFECT_TYPES } from '../runtime/effects.js';
 import { BUILTIN_NAMES } from '../expressions/evaluator.js';
+import { validateStep as validateFlowStep, collectFlowBindings, STEP_TYPES } from '../runtime/flow.js';
 
 /**
  * Validation error with key path and optional source line info.
@@ -212,11 +213,13 @@ function validateItems(raw) {
   });
 }
 
-function validateMap(raw) {
+function validateMap(raw, extraTileChars) {
   if (!raw || typeof raw !== 'object') {
     // Map is now optional — procedural dungeon generation can replace it
     return null;
   }
+  const allowed = new Set(['#', '.', '>', '<']);
+  if (extraTileChars) for (const ch of extraTileChars) allowed.add(ch);
   const width = requireNumber(raw, 'width', 'map');
   const height = requireNumber(raw, 'height', 'map');
   if (!Array.isArray(raw.tiles)) {
@@ -242,7 +245,7 @@ function validateMap(raw) {
         spawnY = y;
         return '.';
       }
-      if (ch !== '#' && ch !== '.' && ch !== '>') {
+      if (!allowed.has(ch)) {
         throw new SchemaError(`map.tiles[${y}][${x}]`, `unknown tile character '${ch}'`);
       }
       return ch;
@@ -300,11 +303,41 @@ function validateExpression(exprStr, path, context) {
   }
 
   // Validate path references
-  const SCOPE_ROOTS = new Set(['self', 'actor', 'target', 'tile', 'state', 'player', 'input', 'result', 'target_found']);
+  const SCOPE_ROOTS = new Set([
+    'self', 'actor', 'target', 'tile', 'state', 'player',
+    'input', 'result', 'target_found',
+    // Flow / comprehension local bindings:
+    'item', 'being', 'row',
+    // Binding helper aliases available in most scopes:
+    'origin',
+  ]);
   const paths = collectPaths(ast);
+  const flowBindings = context.flowBindings || null;
   for (const parts of paths) {
     if (parts.length === 0) continue;
     const root = parts[0];
+
+    // Binding references: $name
+    if (root.startsWith('$')) {
+      // Implicit bindings available in any flow context:
+      //   $origin — the actor tile at flow start
+      //   $actor — the actor entity performing the flow
+      const IMPLICIT = new Set(['origin', 'actor', 'self', 'player']);
+      const bindName = root.slice(1);
+      if (IMPLICIT.has(bindName)) continue;
+      if (flowBindings && !flowBindings.has(bindName)) {
+        const known = [...flowBindings].map(n => '$' + n);
+        const hint = known.length ? ` (bound in this flow: ${known.join(', ')})` : '';
+        throw new SchemaError(path, `unknown binding '${root}'${hint}`);
+      }
+      // Outside of a flow, $bindings are rejected by the caller when
+      // flowBindings is explicitly `null`. Tile hook scopes and similar
+      // pass an empty set to permit "no bindings available" validation.
+      if (!flowBindings) {
+        throw new SchemaError(path, `binding references ('${root}') are only valid inside flow-enabled actions`);
+      }
+      continue;
+    }
 
     // Skip if it's a builtin function name
     if (parts.length === 1 && BUILTIN_NAMES.has(root)) continue;
@@ -320,7 +353,12 @@ function validateExpression(exprStr, path, context) {
           'equipped', 'level', 'equip_attack', 'equip_defense',
           'itemKind', 'properties', 'dir', 'dx', 'dy',
           'delta', 'value', 'bonus', 'stat', 'slot', 'moved',
+          'ch', 'has_being', 'tile',
         ]);
+        // Permit free access on comprehension / flow locals whose structure
+        // varies by caller (item.kind, being.hp, row.name, tile.kind, etc.)
+        const LOOSE_ROOTS = new Set(['item', 'being', 'row', 'tile']);
+        if (LOOSE_ROOTS.has(root)) continue;
         if (!KNOWN_FIELDS.has(field) && !measurementIds.has(field)) {
           const suggestion = nearMiss(field, [...measurementIds, ...KNOWN_FIELDS]);
           const hint = suggestion ? ` (did you mean '${suggestion}'?)` : '';
@@ -339,6 +377,35 @@ function validateExpression(exprStr, path, context) {
   }
 
   return ast;
+}
+
+/**
+ * Validate `$name` references inside a message template string.
+ * Templates use `{path}` placeholders (see handleMessage in effects.js).
+ * When a placeholder root starts with `$`, enforce the same flowBindings
+ * rules that validateExpression applies to expression fields — otherwise
+ * misspelled binding names silently render as `'???'` at runtime.
+ */
+function validateMessageTemplate(text, path, context) {
+  const flowBindings = context.flowBindings || null;
+  const IMPLICIT = new Set(['origin', 'actor', 'self', 'player']);
+  const re = /\{([^}]+)\}/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const parts = m[1].trim().split('.');
+    const root = parts[0];
+    if (!root.startsWith('$')) continue;
+    const bindName = root.slice(1);
+    if (IMPLICIT.has(bindName)) continue;
+    if (flowBindings && !flowBindings.has(bindName)) {
+      const known = [...flowBindings].map(n => '$' + n);
+      const hint = known.length ? ` (bound in this flow: ${known.join(', ')})` : '';
+      throw new SchemaError(path, `unknown binding '${root}'${hint}`);
+    }
+    if (!flowBindings) {
+      throw new SchemaError(path, `binding references ('${root}') are only valid inside flow-enabled actions`);
+    }
+  }
 }
 
 // ── Actions validation ───────────────────────────────────────────────────
@@ -438,10 +505,57 @@ function validateEffectObj(raw, path, context) {
 
   if (type === 'message') {
     effect.text = requireString(raw, 'text', path);
+    validateMessageTemplate(effect.text, `${path}.text`, context);
   }
 
   if (type === 'transition_level') {
     effect.delta = raw.delta ?? 1;
+  }
+
+  if (type === 'apply_area') {
+    effect.measurement = requireString(raw, 'measurement', path);
+    if (!context.measurementIds.has(effect.measurement)) {
+      throw new SchemaError(`${path}.measurement`, `unknown measurement '${effect.measurement}'`);
+    }
+    if (raw.origin != null) {
+      if (typeof raw.origin !== 'string') {
+        throw new SchemaError(`${path}.origin`, 'origin must be an expression string');
+      }
+      validateExpression(raw.origin, `${path}.origin`, context);
+      effect.origin = raw.origin;
+    }
+    if (raw.radius != null) {
+      if (typeof raw.radius === 'string') {
+        validateExpression(raw.radius, `${path}.radius`, context);
+      } else if (typeof raw.radius !== 'number') {
+        throw new SchemaError(`${path}.radius`, 'radius must be a number or expression string');
+      }
+      effect.radius = raw.radius;
+    } else {
+      effect.radius = 0;
+    }
+    if (raw.delta != null) {
+      if (typeof raw.delta === 'string') {
+        validateExpression(raw.delta, `${path}.delta`, context);
+      } else if (typeof raw.delta !== 'number') {
+        throw new SchemaError(`${path}.delta`, 'delta must be a number or expression string');
+      }
+      effect.delta = raw.delta;
+    } else {
+      effect.delta = 0;
+    }
+    if (raw.exclude_actor != null) effect.exclude_actor = !!raw.exclude_actor;
+  }
+
+  if (type === 'transform_tile') {
+    effect.char = requireString(raw, 'char', path);
+    if (raw.at != null) {
+      if (typeof raw.at !== 'string') {
+        throw new SchemaError(`${path}.at`, 'at must be an expression string');
+      }
+      validateExpression(raw.at, `${path}.at`, context);
+      effect.at = raw.at;
+    }
   }
 
   if (type === 'win' || type === 'lose') {
@@ -494,10 +608,20 @@ function validateActions(raw, context) {
       }
       const action = {
         id: requireString(entry, 'id', path),
-        trigger: requireString(entry, 'trigger', path),
+        // `trigger` may be omitted if a top-level `keymap` routes a key to this id.
+        trigger: typeof entry.trigger === 'string' ? entry.trigger : null,
         requires: [],
         effects: [],
+        flow: null,
       };
+
+      // Context-sensitive `when` expression — chooses among multiple actions
+      // sharing the same trigger. Evaluated before the flow begins.
+      if (entry.when != null) {
+        const ast = validateExpression(entry.when, `${path}.when`, context);
+        action.when = { source: entry.when, ast };
+      }
+
       if (entry.requires != null) {
         if (!Array.isArray(entry.requires)) {
           throw new SchemaError(`${path}.requires`, 'must be an array');
@@ -507,7 +631,40 @@ function validateActions(raw, context) {
           return { source: expr, ast };
         });
       }
-      action.effects = validateEffectsList(entry.effects, `${path}.effects`, context);
+
+      // Flow: ordered list of step descriptors. Collect declared bindings
+      // and expose them when validating the action's `effects` so refs to
+      // `$name` can be caught at load time.
+      if (entry.flow != null) {
+        if (!Array.isArray(entry.flow)) {
+          throw new SchemaError(`${path}.flow`, 'must be an array');
+        }
+        const seenBindings = new Set();
+        action.flow = entry.flow.map((step, j) => {
+          const stepPath = `${path}.flow[${j}]`;
+          const norm = validateFlowStep(step, stepPath, {
+            ...context,
+            SchemaError,
+            validateExpression: (expr, p) => validateExpression(expr, p, {
+              ...context,
+              flowBindings: seenBindings,
+            }),
+          });
+          if (norm.bind) {
+            if (seenBindings.has(norm.bind)) {
+              throw new SchemaError(`${stepPath}.bind`, `duplicate binding name '${norm.bind}' within flow`);
+            }
+            seenBindings.add(norm.bind);
+          }
+          return norm;
+        });
+      }
+
+      // Effects: validate with flowBindings context if a flow is defined
+      const effectsCtx = action.flow
+        ? { ...context, flowBindings: collectFlowBindings(action.flow) }
+        : context;
+      action.effects = validateEffectsList(entry.effects, `${path}.effects`, effectsCtx);
       return action;
     });
   }
@@ -783,6 +940,214 @@ function validateRendering(raw, context) {
   return rendering;
 }
 
+// ── Tiles (interaction hooks + rendering) ────────────────────────────────
+
+/**
+ * Validate the top-level `tiles` section. Each entry is keyed by a tile
+ * symbol (one character) and may declare:
+ *   - kind: semantic name exposed as `actor.tile.kind`
+ *   - glyph / color: rendering overrides
+ *   - on_enter, on_stand, on_interact: effect lists
+ */
+function validateTiles(raw, context) {
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SchemaError('tiles', 'must be an object');
+  }
+  const tiles = {};
+  for (const [sym, cfg] of Object.entries(raw)) {
+    const path = `tiles.${sym}`;
+    if (!cfg || typeof cfg !== 'object') {
+      throw new SchemaError(path, 'tile config must be an object');
+    }
+    const norm = {};
+    if (cfg.kind != null) {
+      if (typeof cfg.kind !== 'string') {
+        throw new SchemaError(`${path}.kind`, 'must be a string');
+      }
+      norm.kind = cfg.kind;
+    }
+    if (cfg.glyph != null) norm.glyph = String(cfg.glyph);
+    if (cfg.color != null) norm.color = String(cfg.color);
+    for (const hook of ['on_enter', 'on_stand', 'on_interact']) {
+      if (cfg[hook] != null) {
+        // No $bindings in tile hooks — pass flowBindings: empty set to
+        // fail any stray $refs.
+        const hookCtx = { ...context, flowBindings: new Set() };
+        norm[hook] = validateEffectsList(cfg[hook], `${path}.${hook}`, hookCtx);
+      }
+    }
+    tiles[sym] = norm;
+  }
+  return tiles;
+}
+
+// ── Keymap ───────────────────────────────────────────────────────────────
+
+function validateKeymap(raw, actions) {
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SchemaError('keymap', 'must be an object');
+  }
+  const actionIds = new Set(actions.player.map(a => a.id));
+  const triggers = new Set(actions.player.map(a => a.trigger).filter(Boolean));
+  // Built-in actions that require no explicit definition:
+  const BUILTINS = new Set(['interact', 'move_n', 'move_s', 'move_e', 'move_w', 'move', 'wait']);
+  const map = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (typeof val !== 'string') {
+      throw new SchemaError(`keymap.${key}`, 'must be a string (action id or trigger)');
+    }
+    if (!actionIds.has(val) && !triggers.has(val) && !BUILTINS.has(val)) {
+      throw new SchemaError(
+        `keymap.${key}`,
+        `unknown action id or trigger '${val}' (known ids: ${[...actionIds].join(', ')}; triggers: ${[...triggers].join(', ')}; builtins: ${[...BUILTINS].join(', ')})`
+      );
+    }
+    map[key] = val;
+  }
+  return map;
+}
+
+// ── UI (panels / prompts / hud) ──────────────────────────────────────────
+
+function validateUiPrompts(raw, context) {
+  if (raw == null) return { ids: new Set(), map: {} };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SchemaError('ui.prompts', 'must be an object');
+  }
+  const ids = new Set();
+  const map = {};
+  for (const [id, cfg] of Object.entries(raw)) {
+    const path = `ui.prompts.${id}`;
+    if (!cfg || typeof cfg !== 'object') {
+      throw new SchemaError(path, 'prompt config must be an object');
+    }
+    ids.add(id);
+    map[id] = {
+      id,
+      title: typeof cfg.title === 'string' ? cfg.title : null,
+      message: typeof cfg.message === 'string' ? cfg.message : null,
+    };
+  }
+  return { ids, map };
+}
+
+function validateUiPanels(raw, context) {
+  if (raw == null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SchemaError('ui.panels', 'must be an object');
+  }
+  const panels = {};
+  const actionIds = new Set((context.actions || []).map(a => a.id));
+  for (const [id, cfg] of Object.entries(raw)) {
+    const path = `ui.panels.${id}`;
+    if (!cfg || typeof cfg !== 'object') {
+      throw new SchemaError(path, 'panel config must be an object');
+    }
+    const panel = { id };
+    if (cfg.open_on != null) {
+      if (Array.isArray(cfg.open_on)) {
+        panel.open_on = cfg.open_on.map(String);
+      } else if (typeof cfg.open_on === 'string') {
+        panel.open_on = [cfg.open_on];
+      } else {
+        throw new SchemaError(`${path}.open_on`, 'must be a string or array of strings');
+      }
+    }
+    if (cfg.title != null) panel.title = String(cfg.title);
+    if (cfg.data != null) {
+      if (typeof cfg.data !== 'string') {
+        throw new SchemaError(`${path}.data`, 'data must be an expression string');
+      }
+      panel.dataAst = validateExpression(cfg.data, `${path}.data`, context);
+      panel.data = cfg.data;
+    }
+    if (cfg.columns != null) {
+      if (!Array.isArray(cfg.columns)) {
+        throw new SchemaError(`${path}.columns`, 'must be an array');
+      }
+      panel.columns = cfg.columns.map((col, i) => {
+        const colPath = `${path}.columns[${i}]`;
+        if (!col || typeof col !== 'object') {
+          throw new SchemaError(colPath, 'column must be an object');
+        }
+        const header = typeof col.header === 'string' ? col.header : '';
+        if (typeof col.field !== 'string') {
+          throw new SchemaError(`${colPath}.field`, 'field must be an expression string');
+        }
+        const fieldAst = validateExpression(col.field, `${colPath}.field`, context);
+        return { header, field: col.field, fieldAst };
+      });
+    }
+    if (cfg.on_select != null) {
+      if (typeof cfg.on_select === 'string') {
+        // Reference to an action id
+        if (!actionIds.has(cfg.on_select)) {
+          throw new SchemaError(
+            `${path}.on_select`,
+            `unknown action id '${cfg.on_select}' (known: ${[...actionIds].join(', ')})`
+          );
+        }
+        panel.on_select = { actionId: cfg.on_select };
+      } else if (Array.isArray(cfg.on_select)) {
+        const effects = validateEffectsList(cfg.on_select, `${path}.on_select`, {
+          ...context, flowBindings: new Set(['selected_row']),
+        });
+        panel.on_select = { effects };
+      } else {
+        throw new SchemaError(`${path}.on_select`, 'must be an action id string or effects list');
+      }
+    }
+    panels[id] = panel;
+  }
+  return panels;
+}
+
+function validateUiHud(raw, _context) {
+  if (raw == null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new SchemaError('ui.hud', 'must be an object');
+  }
+  const hud = {};
+  if (raw.target_indicator != null) {
+    if (typeof raw.target_indicator === 'object') {
+      hud.target_indicator = {
+        glyph: typeof raw.target_indicator.glyph === 'string' ? raw.target_indicator.glyph : '*',
+        color: typeof raw.target_indicator.color === 'string' ? raw.target_indicator.color : 'yellow',
+      };
+    } else {
+      hud.target_indicator = { glyph: '*', color: 'yellow' };
+    }
+  }
+  if (raw.prompt_banner != null) {
+    const pos = typeof raw.prompt_banner === 'object' && raw.prompt_banner.position
+      ? raw.prompt_banner.position
+      : 'bottom';
+    if (pos !== 'top' && pos !== 'bottom') {
+      throw new SchemaError('ui.hud.prompt_banner.position', `must be 'top' or 'bottom'`);
+    }
+    hud.prompt_banner = { position: pos };
+  }
+  return hud;
+}
+
+// ── Duplicate-trigger ambiguity warning ──────────────────────────────────
+
+function detectDuplicateTriggers(playerActionsByTrigger, warnings) {
+  for (const [trigger, list] of Object.entries(playerActionsByTrigger)) {
+    if (!list || list.length < 2) continue;
+    const unguarded = list.filter(a => !a.when);
+    // Ambiguous if more than one has no `when`, or if all have no `when`.
+    if (unguarded.length > 1) {
+      warnings.push(
+        `actions: duplicate trigger '${trigger}' with ${unguarded.length} unguarded actions (${unguarded.map(a => a.id).join(', ')}). ` +
+        `Add 'when' expressions to disambiguate.`
+      );
+    }
+  }
+}
+
 // ── Main loader ──────────────────────────────────────────────────────────
 
 /**
@@ -816,10 +1181,45 @@ export function loadFromString(yamlString) {
   // Build validation context for expressions and cross-refs
   const context = { measurementIds, beingIds, itemIds };
 
-  const map = validateMap(raw.map);
-  const actions = validateActions(raw.actions, context);
+  // Tiles: per-symbol config with optional on_enter/on_stand/on_interact hooks.
+  // Validated before actions so the actions pass can know which tile kinds
+  // exist for `on_interact` desugaring; and before the map so custom tile
+  // symbols declared here are permitted in `map.tiles`.
+  const tiles = validateTiles(raw.tiles, context);
+
+  const map = validateMap(raw.map, tiles ? Object.keys(tiles) : null);
+
+  // Prompts come before actions so flow steps can reference them by id.
+  const uiPrompts = validateUiPrompts(raw.ui?.prompts, context);
+
+  const actionsContext = { ...context, promptIds: uiPrompts.ids };
+  const actions = validateActions(raw.actions, actionsContext);
+
+  // Keymap: optional top-level `{ key: action_id }` routing
+  const keymap = validateKeymap(raw.keymap, actions);
+
+  const warnings = [];
+
+  // Warn if any on_interact tile has no keymap entry for `interact`.
+  if (tiles && Object.values(tiles).some(t => t.on_interact && t.on_interact.length > 0)) {
+    const hasInteractBinding = (keymap && Object.values(keymap).includes('interact'))
+      || actions.player.some(a => a.trigger === 'interact' || a.id === 'interact');
+    if (!hasInteractBinding) {
+      warnings.push(
+        `tiles: on_interact hooks defined but no key is bound to 'interact' in keymap — these hooks are unreachable.`
+      );
+    }
+  }
+
   const world = validateWorld(raw.world, context);
   const rendering = validateRendering(raw.rendering, context);
+
+  // UI panels: validated after actions so on_select can reference them.
+  const ui = {
+    panels: validateUiPanels(raw.ui?.panels, { ...context, actions: actions.player }),
+    prompts: uiPrompts.map,
+    hud: validateUiHud(raw.ui?.hud, context),
+  };
 
   // Build lookup tables
   const measurementIndex = Object.create(null);
@@ -832,8 +1232,34 @@ export function loadFromString(yamlString) {
   // Build action index
   const playerActionIndex = Object.create(null);
   for (const a of actions.player) playerActionIndex[a.id] = a;
+  // First-match-wins index: first action to declare a trigger. Kept for
+  // back-compat with callers that expect a single action per key.
   const playerActionByTrigger = Object.create(null);
-  for (const a of actions.player) playerActionByTrigger[a.trigger] = a;
+  // Grouped index: all actions bound to the same trigger (for first-match-
+  // via-`when` resolution).
+  const playerActionsByTrigger = Object.create(null);
+  for (const a of actions.player) {
+    const triggers = [];
+    if (a.trigger) triggers.push(a.trigger);
+    // Keymap-based triggers: any key whose value matches this action's id
+    // OR trigger. Both forms are accepted so authors can migrate gradually.
+    if (keymap) {
+      for (const [k, val] of Object.entries(keymap)) {
+        if ((val === a.id || val === a.trigger) && !triggers.includes(k)) {
+          triggers.push(k);
+        }
+      }
+    }
+    for (const t of triggers) {
+      if (!(t in playerActionByTrigger)) playerActionByTrigger[t] = a;
+      if (!playerActionsByTrigger[t]) playerActionsByTrigger[t] = [];
+      playerActionsByTrigger[t].push(a);
+    }
+  }
+
+  // Detect duplicate-trigger ambiguity across player actions (warning).
+  // Uses the resolved trigger index so keymap-routed bindings are included.
+  detectDuplicateTriggers(playerActionsByTrigger, warnings);
 
   return {
     meta,
@@ -841,15 +1267,20 @@ export function loadFromString(yamlString) {
     beings,
     items,
     map,
+    tiles,
     actions,
     world,
     rendering,
+    ui,
+    keymap,
+    warnings,
     _index: {
       measurements: measurementIndex,
       beings: beingIndex,
       items: itemIndex,
       playerActions: playerActionIndex,
       playerActionByTrigger,
+      playerActionsByTrigger,
     },
   };
 }

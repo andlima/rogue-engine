@@ -1,0 +1,188 @@
+meta:
+  id: interact-demo
+  name: Interact Demo
+  version: "0.1.0"
+  description: Exercises interaction flows, tile hooks, and the UI panel DSL
+  player_archetype: hero
+
+measurements:
+  - id: hp
+    label: Hit Points
+    min: 0
+    max: 30
+    initial: 20
+  - id: mp
+    label: Mana
+    min: 0
+    max: 20
+    initial: 10
+
+beings:
+  - id: hero
+    label: Hero
+    glyph: "@"
+    color: white
+    measurements:
+      hp: 20
+      mp: 10
+    tags: [player]
+  - id: goblin
+    label: Goblin
+    glyph: "g"
+    color: green
+    measurements:
+      hp: 6
+    tags: [monster]
+
+items:
+  - id: potion
+    label: Healing Potion
+    glyph: "!"
+    color: red
+    kind: consumable
+  - id: key
+    label: Brass Key
+    glyph: "k"
+    color: yellow
+    kind: consumable
+
+map:
+  width: 12
+  height: 8
+  tiles:
+    - "############"
+    - "#..........#"
+    - "#...@......#"
+    - "#.........D#"
+    - "#..........#"
+    - "#..........#"
+    - "#.........>#"
+    - "############"
+
+tiles:
+  ">":
+    kind: stairs_down
+  "D":
+    kind: door_locked
+    glyph: "+"
+    color: yellow
+    on_interact:
+      - type: message
+        when: 'not has_item("key")'
+        text: "The door is locked. You need a key."
+      - type: transform_tile
+        when: 'has_item("key")'
+        char: "'"
+      - type: message
+        when: 'has_item("key")'
+        text: "You unlock the door; it swings open."
+      - type: consume
+        when: 'has_item("key")'
+        item: key
+  "'":
+    kind: door_open
+    glyph: "'"
+    color: brown
+
+keymap:
+  q: quaff_potion
+  z: cast_fireball
+  ">": descend_stairs
+  "?": no_stairs_here
+  " ": interact
+
+actions:
+  player:
+    - id: quaff_potion
+      flow:
+        - type: pick_item
+          source: actor.inventory
+          filter: 'item.kind == "consumable"'
+          bind: chosen_item
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: "10"
+        - type: message
+          text: "{actor.name} quaffs a potion and heals."
+
+    - id: cast_fireball
+      requires:
+        - "actor.mp >= 5"
+      flow:
+        - type: pick_option
+          bind: chosen_option
+          options:
+            - id: fireball
+              label: Fireball (5 MP)
+              payload:
+                spell_id: fireball
+                radius: 1
+                damage: 8
+        - type: pick_tile
+          range: 5
+          filter: "line_of_sight($origin, tile)"
+          bind: target_tile
+      effects:
+        - type: apply
+          target: actor
+          measurement: mp
+          delta: "-5"
+        - type: apply_area
+          origin: "$target_tile"
+          radius: 1
+          measurement: hp
+          delta: "-8"
+          exclude_actor: true
+        - type: message
+          text: "{actor.name} hurls a fireball."
+
+    - id: descend_stairs
+      when: 'actor.tile.kind == "stairs_down"'
+      effects:
+        - type: transition_level
+          delta: 1
+        - type: message
+          text: "You descend to a deeper level."
+
+    - id: no_stairs_here
+      when: 'actor.tile.kind != "stairs_down"'
+      effects:
+        - type: message
+          text: "There are no stairs here."
+
+ui:
+  panels:
+    inventory:
+      open_on: i
+      title: Inventory
+      data: "actor.inventory"
+      columns:
+        - header: Name
+          field: "item.label"
+        - header: Kind
+          field: "item.kind"
+  prompts:
+    aim:
+      title: Aim
+      message: "Select a target tile (ESC to cancel)"
+  hud:
+    target_indicator:
+      glyph: "*"
+      color: yellow
+    prompt_banner:
+      position: bottom
+
+world:
+  win_conditions:
+    - "state.level >= 3"
+  loss_conditions:
+    - "player.hp <= 0"
+
+rendering:
+  hud:
+    measurements:
+      - hp
+      - mp
+    message_log_size: 5

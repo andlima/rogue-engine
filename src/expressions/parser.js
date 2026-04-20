@@ -73,10 +73,13 @@ function tokenize(source) {
       continue;
     }
 
-    // identifier or keyword
-    if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_') {
+    // identifier or keyword (also supports `$name` binding references)
+    if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_' || ch === '$') {
       let ident = '';
       const start = i;
+      if (ch === '$') {
+        ident += source[i++]; // include the $
+      }
       while (
         i < source.length &&
         ((source[i] >= 'a' && source[i] <= 'z') ||
@@ -168,9 +171,18 @@ class Parser {
     return null;
   }
 
-  // expr = or_expr
+  // expr = where_expr
   parseExpr() {
-    return this.parseOr();
+    return this.parseWhere();
+  }
+
+  // where_expr = or_expr ("where" or_expr)*
+  parseWhere() {
+    let left = this.parseOr();
+    while (this.match(T.IDENT, 'where')) {
+      left = AST.binary('where', left, this.parseOr());
+    }
+    return left;
   }
 
   // or_expr = and_expr ("or" and_expr)*
@@ -277,7 +289,7 @@ class Parser {
     if (tok.type === T.IDENT) {
       if (tok.value === 'true') { this.advance(); return AST.boolean(true); }
       if (tok.value === 'false') { this.advance(); return AST.boolean(false); }
-      if (tok.value === 'and' || tok.value === 'or' || tok.value === 'not') {
+      if (tok.value === 'and' || tok.value === 'or' || tok.value === 'not' || tok.value === 'where') {
         throw new ExprSyntaxError(`Unexpected keyword '${tok.value}' at position ${tok.pos}`);
       }
       this.advance();
