@@ -147,7 +147,7 @@ function draw() {
   }
   const fovMap = state.map ? computeFOV(state.map, state.player.x, state.player.y) : undefined;
   const grid = getVisibleTiles(state, VIEW_W, VIEW_H, fovMap);
-  console.log(renderToString(grid));
+  console.log(renderToString(grid, state.definition.rendering, state));
   console.log();
   console.log(renderStatus(state));
   console.log();
@@ -213,6 +213,9 @@ function actOnBinding(binding) {
       return;
     case 'interact':
       state = dispatch(state, { type: 'interact' });
+      return;
+    case 'toggle_display':
+      state = dispatch(state, { type: 'toggle_display' });
       return;
     default:
       // The loader indexes every player action under its id, so the CLI

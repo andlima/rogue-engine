@@ -46,6 +46,7 @@ Array of being archetypes (player, monsters, NPCs).
 | `id`           | string           | yes      | Unique identifier |
 | `label`        | string           | yes      | Display name |
 | `glyph`        | string           | yes      | Single character for map rendering |
+| `emoji`        | string           | no       | Alternate glyph rendered when `state.displayMode === 'emoji'`. Missing entries fall back to `glyph`. See `docs/rendering.md`. |
 | `color`        | string           | yes      | Display color name |
 | `measurements` | object           | no       | Map of measurement ID → initial value override |
 | `tags`         | array of strings | no       | Arbitrary tags for grouping/filtering |
@@ -63,6 +64,7 @@ Array of item archetypes.
 | `id`    | string           | yes      | Unique identifier |
 | `label` | string           | yes      | Display name |
 | `glyph` | string           | yes      | Single character for map rendering |
+| `emoji` | string           | no       | Alternate glyph rendered when `state.displayMode === 'emoji'`. Missing entries fall back to `glyph`. |
 | `color` | string           | yes      | Display color name |
 | `kind`  | string           | yes      | One of: `consumable`, `equipment`, `currency`, `container` |
 | `tags`  | array of strings | no       | Arbitrary tags |
@@ -91,3 +93,23 @@ A static map definition for the game world.
 The `tiles` array must contain exactly `height` strings, each of length
 `width`. Exactly one `@` tile must be present. The player archetype
 referenced by `meta.player_archetype` must exist in `beings`.
+
+## `rendering`
+
+Optional display overrides. All fields are optional — the engine falls
+back to the archetype defaults defined under `beings` / `items` when a
+field is missing.
+
+| Field                  | Type             | Required | Description |
+|------------------------|------------------|----------|-------------|
+| `default_display_mode` | string           | no       | Initial value for `state.displayMode`. One of `"ascii"` \| `"emoji"`. Defaults to `"ascii"`. |
+| `tiles`                | object           | no       | Per-tile-character override: `{ glyph?, emoji?, color? }` |
+| `beings`               | object           | no       | Per-being-id override: `{ glyph?, emoji?, color? }` |
+| `items`                | object           | no       | Per-item-id override: `{ glyph?, emoji?, color? }` |
+| `status_rules`         | array            | no       | Conditional override entries: `{ when, glyph?, emoji?, glyph_color? }` |
+| `hud`                  | object           | no       | HUD configuration (measurements, message log size) |
+
+The override walk for beings and items is: `status_rules` →
+`rendering.{beings,items}.<id>` → archetype default. Emoji resolution
+follows the same chain so conditional glyph rules also work in emoji
+mode. See `docs/rendering.md` for the full display-mode contract.

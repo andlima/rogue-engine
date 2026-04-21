@@ -88,6 +88,7 @@ beings:
   - id: player
     label: Player
     glyph: "@"
+    emoji: "🧙"
     color: white
     measurements:
       hp: 30
@@ -99,6 +100,7 @@ beings:
   - id: rat
     label: Rat
     glyph: "r"
+    emoji: "🐀"
     color: green
     measurements:
       hp: 5
@@ -112,6 +114,7 @@ beings:
   - id: skeleton
     label: Skeleton
     glyph: "s"
+    emoji: "💀"
     color: white
     measurements:
       hp: 10
@@ -125,6 +128,7 @@ beings:
   - id: bear
     label: Bear
     glyph: "B"
+    emoji: "🐻"
     color: yellow
     measurements:
       hp: 20
@@ -138,6 +142,7 @@ beings:
   - id: dragon
     label: Dragon
     glyph: "D"
+    emoji: "🐉"
     color: red
     measurements:
       hp: 30
@@ -153,6 +158,7 @@ items:
   - id: dagger
     label: Dagger
     glyph: "/"
+    emoji: "🗡"
     color: cyan
     kind: equipment
     properties:
@@ -164,6 +170,7 @@ items:
   - id: sword
     label: Sword
     glyph: "/"
+    emoji: "⚔"
     color: bright_cyan
     kind: equipment
     properties:
@@ -175,6 +182,7 @@ items:
   - id: helmet
     label: Helmet
     glyph: "["
+    emoji: "🪖"
     color: gray
     kind: equipment
     properties:
@@ -186,6 +194,7 @@ items:
   - id: shield
     label: Shield
     glyph: ")"
+    emoji: "🛡"
     color: gray
     kind: equipment
     properties:
@@ -197,6 +206,7 @@ items:
   - id: food
     label: Food
     glyph: "%"
+    emoji: "🍞"
     color: green
     kind: consumable
     tags: [food]
@@ -204,6 +214,7 @@ items:
   - id: gold
     label: Gold
     glyph: "$"
+    emoji: "💰"
     color: yellow
     kind: currency
     tags: [currency]
@@ -211,6 +222,7 @@ items:
   - id: idol
     label: Idol
     glyph: "&"
+    emoji: "🗿"
     color: magenta
     kind: consumable
     tags: [idol]
@@ -534,12 +546,15 @@ rendering:
   tiles:
     ">":
       glyph: ">"
+      emoji: "🪜"
       color: bright_yellow
     "#":
       glyph: "#"
+      emoji: "🧱"
       color: gray
     ".":
       glyph: "."
+      emoji: "·"
       color: white
 
   beings:
@@ -590,9 +605,11 @@ input:
     - { key: "e",     action: use_food }
     - { key: "i",     action: interact_idol }
     - { key: ".",     action: wait, label: "Wait" }
+    # Display mode toggle — flips between ASCII and emoji glyphs.
+    - { key: "TAB",   action: toggle_display }
   help:
     title: "Silly Game — Commands"
     sections:
       - { header: "Move",    actions: [move_n, move_s, move_e, move_w] }
       - { header: "Actions", actions: [descend, use_food, interact_idol, wait] }
-      - { header: "System",  actions: [open_help] }
+      - { header: "System",  actions: [toggle_display, open_help] }

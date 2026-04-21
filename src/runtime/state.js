@@ -78,6 +78,8 @@ export function createState(definition, seed) {
     label: playerArchetype.label,
   };
 
+  const displayMode = definition.rendering?.default_display_mode ?? 'ascii';
+
   return {
     definition,
     turn: 0,
@@ -90,6 +92,7 @@ export function createState(definition, seed) {
     terminal: null,
     terminalReason: null,
     flowState: null,
+    displayMode,
   };
 }
 

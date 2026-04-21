@@ -30,24 +30,56 @@ function colorize(ch, color) {
   return `${ANSI_COLORS[color]}${ch}${ANSI_RESET}`;
 }
 
+// A single UTF-16 code unit is treated as a narrow (1-column) glyph —
+// @, ., #, · all fall in this bucket. Emoji occupy a surrogate pair or
+// more, so a length >= 2 means we can trust the terminal to render it
+// as 2 columns. See spec: emoji-rendering criterion 12.
+function isNarrowGlyph(ch) {
+  return typeof ch === 'string' && ch.length === 1;
+}
+
 /**
  * Render a 2D grid of visible tiles to a string.
- * If renderingConfig is provided, applies glyph/color overrides.
+ *
+ * @param {Array<Array<{ch, color}>>} grid
+ * @param {object} [renderingConfig] — rendering config for tile overrides
+ * @param {object|string} [stateOrMode] — either a state object (with
+ *   `displayMode`) or the mode string directly. When mode is `'emoji'`,
+ *   every map cell is padded to two display columns so the grid stays
+ *   aligned.
  */
-export function renderToString(grid, renderingConfig) {
+export function renderToString(grid, renderingConfig, stateOrMode) {
+  const mode = typeof stateOrMode === 'string'
+    ? stateOrMode
+    : stateOrMode?.displayMode ?? 'ascii';
+  const emoji = mode === 'emoji';
+
   return grid.map(row =>
     row.map(cell => {
       let ch = cell.ch;
       let color = cell.color;
 
-      // Apply rendering overrides for tiles
+      // Apply rendering overrides for tiles. In emoji mode, prefer the
+      // tile's `emoji` field when declared; otherwise fall back to the
+      // configured glyph override (or the raw tile character).
       if (renderingConfig?.tiles?.[ch]) {
         const override = renderingConfig.tiles[ch];
-        if (override.glyph) ch = override.glyph;
+        if (emoji && override.emoji) {
+          ch = override.emoji;
+        } else if (override.glyph) {
+          ch = override.glyph;
+        }
         if (override.color) color = override.color;
       }
 
-      return colorize(ch, color);
+      const painted = colorize(ch, color);
+      // Uniform two-column cell width in emoji mode: ASCII fallbacks get
+      // right-padded with one space; true emoji (multi-unit strings) are
+      // assumed to already occupy two columns.
+      if (emoji && isNarrowGlyph(ch)) {
+        return painted + ' ';
+      }
+      return painted;
     }).join('')
   ).join('\n');
 }
@@ -90,25 +122,35 @@ export function renderMessages(state, maxLines) {
 /**
  * Get the effective glyph and color for a being entity.
  * Checks rendering overrides, then falls back to definition defaults.
+ *
+ * When `state.displayMode === 'emoji'` the resolution walks the same
+ * chain for the `emoji` field (status_rules → rendering.beings override
+ * → being archetype). A missing `emoji` at each layer falls back to the
+ * corresponding glyph; criterion 11 guarantees no `?` placeholder.
  */
 export function getBeingAppearance(beingId, definition, state) {
   const beingDef = definition._index.beings[beingId];
   if (!beingDef) return { glyph: '?', color: null };
 
+  const emojiMode = state?.displayMode === 'emoji';
   let glyph = beingDef.glyph;
   let color = beingDef.color;
+  // In emoji mode, track the emoji separately from the ASCII glyph so a
+  // missing emoji at one layer can still fall through to the base glyph.
+  let emoji = beingDef.emoji || null;
 
   // Apply rendering overrides
   const renderOverride = definition.rendering?.beings?.[beingId];
   if (renderOverride) {
     if (renderOverride.glyph) glyph = renderOverride.glyph;
     if (renderOverride.color) color = renderOverride.color;
+    if (renderOverride.emoji) emoji = renderOverride.emoji;
   }
 
   // Apply status rules (conditional overrides)
   if (definition.rendering?.status_rules && state) {
     // Find the actual being entity to evaluate status rules against
-    const beingEntity = state.entities.find(e => e.id === beingId && e.kind === 'being');
+    const beingEntity = state.entities?.find(e => e.id === beingId && e.kind === 'being');
     const beingView = beingEntity
       ? { ...beingEntity, ...beingEntity.measurements }
       : state.player;
@@ -125,6 +167,7 @@ export function getBeingAppearance(beingId, definition, state) {
           if (result) {
             if (rule.glyph_color) color = rule.glyph_color;
             if (rule.glyph) glyph = rule.glyph;
+            if (rule.emoji) emoji = rule.emoji;
           }
         } catch {
           // Skip broken rules at runtime
@@ -133,6 +176,7 @@ export function getBeingAppearance(beingId, definition, state) {
     }
   }
 
+  if (emojiMode && emoji) return { glyph: emoji, color };
   return { glyph, color };
 }
 
@@ -271,19 +315,26 @@ export function drawKeyHint(hint) {
 
 /**
  * Get the effective glyph and color for an item entity.
+ *
+ * When `state.displayMode === 'emoji'`, prefers the item's `emoji` over
+ * its ASCII `glyph`; missing `emoji` falls back to glyph (criterion 11).
  */
-export function getItemAppearance(itemId, definition) {
+export function getItemAppearance(itemId, definition, state) {
   const itemDef = definition._index.items[itemId];
   if (!itemDef) return { glyph: '?', color: null };
 
+  const emojiMode = state?.displayMode === 'emoji';
   let glyph = itemDef.glyph;
   let color = itemDef.color;
+  let emoji = itemDef.emoji || null;
 
   const renderOverride = definition.rendering?.items?.[itemId];
   if (renderOverride) {
     if (renderOverride.glyph) glyph = renderOverride.glyph;
     if (renderOverride.color) color = renderOverride.color;
+    if (renderOverride.emoji) emoji = renderOverride.emoji;
   }
 
+  if (emojiMode && emoji) return { glyph: emoji, color };
   return { glyph, color };
 }

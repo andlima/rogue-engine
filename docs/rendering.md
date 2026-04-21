@@ -59,6 +59,65 @@ The ANSI renderer (`src/renderer/ascii.js`) exposes:
 All panel / prompt / reticle output is plain text; colors via ANSI
 escape codes.
 
+## Display modes
+
+The engine ships two map-display modes:
+
+- **`ascii`** (default) — renders single-character glyphs exactly as
+  declared under `beings.<id>.glyph`, `items.<id>.glyph`, and the raw
+  map tile characters (with the usual `rendering.{tiles,beings,items}`
+  overrides and `rendering.status_rules` applied on top).
+- **`emoji`** — prefers the `emoji` field at each layer of the override
+  walk (`status_rules` → `rendering.{tiles,beings,items}.<id>.emoji`
+  → archetype `emoji`) and falls back to the ASCII `glyph` when no
+  emoji is declared.
+
+### `state.displayMode`
+
+The active mode is a plain string on `state`, initialized when the
+state is created:
+
+- Defaults to `"ascii"`.
+- If `rendering.default_display_mode` is set in the game YAML (one of
+  `"ascii"` or `"emoji"`), `createState()` uses that value instead.
+- Mode is ephemeral — it is not persisted across saves, and every new
+  game starts at the default.
+
+### `toggle_display` built-in
+
+`toggle_display` is a built-in action that flips `state.displayMode`
+between `"ascii"` and `"emoji"`. It does **not** consume a turn and
+does **not** run AI — analogous to `open_help`. Games bind it under
+`input.bindings` like any other action (the silly-game YAML binds
+`TAB`). Because it is declared under `BUILTIN_ACTIONS`, the generated
+help panel lists it alongside user-defined actions without any special
+casing.
+
+### Fallback behavior
+
+If the current mode is `emoji` but an entity / tile has no declared
+`emoji` at any layer of the override chain, the renderer emits the
+ASCII `glyph` instead. No `?` placeholder, no runtime error — this is
+the guarantee that authors can adopt emoji mode incrementally.
+
+### Cell width in emoji mode
+
+Every map cell in the ANSI renderer is padded to two display columns
+when `state.displayMode === "emoji"`. The rule:
+
+- ASCII fallbacks (single UTF-16 code unit, e.g. `@` when no emoji is
+  declared) are right-padded with one space.
+- Emoji glyphs (surrogate-pair strings, e.g. `🐉`) are emitted as-is
+  on the assumption that the terminal renders them in two columns.
+
+In `ascii` mode the output is unchanged from a single-column grid, so
+existing parity traces and snapshot tests keep working.
+
+Per-glyph width measurement (east-asian-width tables, ZWJ-aware
+segmentation) is intentionally out of scope — authors who pick narrow
+or wide outliers (e.g. `·` as a floor emoji) accept the resulting
+alignment trade-off.
+
 ## Canvas renderer stub
 
 `src/renderer/canvas.js` ships as a thin stub so `dsl-actions-world-
