@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CanvasRenderer } from '../src/renderer/canvas.js';
 import { renderToString, renderStatus, renderMessages, getBeingAppearance, getItemAppearance, drawPanel, drawPrompt, drawReticle, drawHelpPanel, drawKeyHint } from '../src/renderer/ascii.js';
+import { parse as parseExpr } from '../src/expressions/parser.js';
 
 describe('CanvasRenderer stub', () => {
   it('accepts rendering config in constructor', () => {
@@ -123,5 +124,132 @@ describe('ANSI renderer: input-bindings surfaces', () => {
     assert.equal(drawKeyHint(hint), hint);
     assert.equal(drawKeyHint(''), '');
     assert.equal(drawKeyHint(null), '');
+  });
+});
+
+describe('ANSI renderer: emoji display mode', () => {
+  function mkDef(overrides = {}) {
+    return {
+      rendering: overrides.rendering ?? null,
+      _index: {
+        beings: {
+          hero: { id: 'hero', glyph: '@', emoji: '🧙', color: 'white' },
+          rat:  { id: 'rat',  glyph: 'r', emoji: '🐀', color: 'green' },
+          ghost:{ id: 'ghost',glyph: 'g', color: 'gray' }, // no emoji declared
+        },
+        items: {
+          gold: { id: 'gold', glyph: '$', emoji: '💰', color: 'yellow' },
+          bag:  { id: 'bag',  glyph: '(', color: 'gray' },
+        },
+      },
+    };
+  }
+
+  it('getBeingAppearance returns the emoji when state.displayMode === "emoji"', () => {
+    const def = mkDef();
+    const asciiState = { displayMode: 'ascii', player: {}, entities: [] };
+    const emojiState = { displayMode: 'emoji', player: {}, entities: [] };
+    assert.equal(getBeingAppearance('rat', def, asciiState).glyph, 'r');
+    assert.equal(getBeingAppearance('rat', def, emojiState).glyph, '🐀');
+  });
+
+  it('getBeingAppearance falls back to glyph when no emoji is declared', () => {
+    const def = mkDef();
+    const emojiState = { displayMode: 'emoji', player: {}, entities: [] };
+    const out = getBeingAppearance('ghost', def, emojiState);
+    assert.equal(out.glyph, 'g', 'missing emoji falls through to ASCII glyph');
+  });
+
+  it('getItemAppearance respects state.displayMode', () => {
+    const def = mkDef();
+    const asciiState = { displayMode: 'ascii' };
+    const emojiState = { displayMode: 'emoji' };
+    assert.equal(getItemAppearance('gold', def, asciiState).glyph, '$');
+    assert.equal(getItemAppearance('gold', def, emojiState).glyph, '💰');
+    // No emoji declared → fallback to glyph.
+    assert.equal(getItemAppearance('bag', def, emojiState).glyph, '(');
+  });
+
+  it('rendering.beings.<id>.emoji override wins over beings.<id>.emoji', () => {
+    const def = mkDef({
+      rendering: {
+        beings: {
+          rat: { emoji: '🐁', glyph: null, color: null },
+        },
+      },
+    });
+    const emojiState = { displayMode: 'emoji', player: {}, entities: [] };
+    assert.equal(getBeingAppearance('rat', def, emojiState).glyph, '🐁');
+  });
+
+  it('status_rules[].emoji override applies when its `when` matches', () => {
+    const def = {
+      rendering: {
+        status_rules: [
+          {
+            when: { ast: parseExpr('actor.hp < 5') },
+            emoji: '🩸',
+            glyph: '!',
+          },
+        ],
+      },
+      _index: {
+        beings: {
+          hero: { id: 'hero', glyph: '@', emoji: '🧙', color: 'white' },
+        },
+        items: {},
+      },
+    };
+    const emojiState = {
+      displayMode: 'emoji',
+      level: 1,
+      turn: 0,
+      rng: () => 0.5,
+      player: { measurements: { hp: 3 }, hp: 3 },
+      entities: [],
+    };
+    // Rule matches (hp < 5) → override fires; emoji mode picks the emoji.
+    assert.equal(getBeingAppearance('hero', def, emojiState).glyph, '🩸');
+    // In ASCII mode, the same match yields the rule's glyph override.
+    const asciiState = { ...emojiState, displayMode: 'ascii' };
+    assert.equal(getBeingAppearance('hero', def, asciiState).glyph, '!');
+
+    // When the rule does NOT match (hp = 9), no override is applied.
+    const healthy = {
+      ...emojiState,
+      player: { measurements: { hp: 9 }, hp: 9 },
+    };
+    assert.equal(getBeingAppearance('hero', def, healthy).glyph, '🧙');
+  });
+
+  it('renderToString pads ASCII cells to two columns in emoji mode', () => {
+    const grid = [[{ ch: '@', color: null }, { ch: '.', color: null }]];
+    const out = renderToString(grid, null, { displayMode: 'emoji' });
+    // Two ASCII cells → each padded with a trailing space.
+    assert.equal(out, '@ . ');
+  });
+
+  it('renderToString leaves emoji cells unpadded in emoji mode', () => {
+    const grid = [[{ ch: '🐀', color: null }, { ch: '@', color: null }]];
+    const out = renderToString(grid, null, { displayMode: 'emoji' });
+    // Emoji is emitted as-is; trailing ASCII cell pads with a space.
+    assert.equal(out, '🐀@ ');
+  });
+
+  it('renderToString preserves single-column width in ascii mode', () => {
+    const grid = [[{ ch: '@', color: null }, { ch: '.', color: null }]];
+    const out = renderToString(grid, null, { displayMode: 'ascii' });
+    assert.equal(out, '@.');
+    // Also ensure omitting the state argument defaults to ascii.
+    assert.equal(renderToString(grid), '@.');
+  });
+
+  it('renderToString applies tile emoji override in emoji mode only', () => {
+    const grid = [[{ ch: '#', color: null }]];
+    const rendering = { tiles: { '#': { glyph: '#', emoji: '🧱', color: null } } };
+    const asciiOut = renderToString(grid, rendering, { displayMode: 'ascii' });
+    const emojiOut = renderToString(grid, rendering, { displayMode: 'emoji' });
+    assert.ok(asciiOut.startsWith('#'), 'ASCII mode keeps the raw glyph');
+    assert.ok(emojiOut.startsWith('🧱'), 'emoji mode substitutes the tile emoji');
   });
 });

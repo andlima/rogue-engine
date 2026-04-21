@@ -4,11 +4,17 @@
  *
  * Renders entities (beings and items) on top of the tile map.
  * If fovMap is provided, only visible tiles are rendered; others are blank.
+ *
+ * When `state.displayMode === 'emoji'`, the inline override walk mirrors
+ * `getBeingAppearance` / `getItemAppearance`: emoji fields win over glyphs
+ * whenever declared, and missing emoji falls back to the ASCII glyph so
+ * entities never render as `?`.
  */
 export function getVisibleTiles(state, viewW, viewH, fovMap) {
   const { player, definition, entities } = state;
   const map = state.map || definition.map;
   const playerArchetype = definition._index.beings[player.archetype];
+  const emojiMode = state.displayMode === 'emoji';
 
   const halfW = Math.floor(viewW / 2);
   const halfH = Math.floor(viewH / 2);
@@ -28,6 +34,37 @@ export function getVisibleTiles(state, viewW, viewH, fovMap) {
   const renderingItems = definition.rendering?.items;
   const renderingTiles = definition.rendering?.tiles;
 
+  // Resolve the visible glyph/color for a being (player or entity) by
+  // walking archetype → rendering override, picking `emoji` when the
+  // display mode requests it and one is declared.
+  function resolveBeing(archetypeDef, beingId) {
+    let glyph = archetypeDef.glyph;
+    let color = archetypeDef.color;
+    let emoji = archetypeDef.emoji || null;
+    const override = renderingBeings?.[beingId];
+    if (override) {
+      if (override.glyph) glyph = override.glyph;
+      if (override.color) color = override.color;
+      if (override.emoji) emoji = override.emoji;
+    }
+    if (emojiMode && emoji) return { ch: emoji, color };
+    return { ch: glyph, color };
+  }
+
+  function resolveItem(itemDef, itemId) {
+    let glyph = itemDef.glyph;
+    let color = itemDef.color;
+    let emoji = itemDef.emoji || null;
+    const override = renderingItems?.[itemId];
+    if (override) {
+      if (override.glyph) glyph = override.glyph;
+      if (override.color) color = override.color;
+      if (override.emoji) emoji = override.emoji;
+    }
+    if (emojiMode && emoji) return { ch: emoji, color };
+    return { ch: glyph, color };
+  }
+
   const grid = [];
   for (let vy = 0; vy < viewH; vy++) {
     const row = [];
@@ -41,36 +78,19 @@ export function getVisibleTiles(state, viewW, viewH, fovMap) {
         // Not visible — show blank
         row.push({ ch: ' ', color: null });
       } else if (mx === player.x && my === player.y) {
-        let glyph = playerArchetype.glyph;
-        let color = playerArchetype.color;
-        if (renderingBeings?.[player.archetype]) {
-          const override = renderingBeings[player.archetype];
-          if (override.glyph) glyph = override.glyph;
-          if (override.color) color = override.color;
-        }
-        row.push({ ch: glyph, color });
+        row.push(resolveBeing(playerArchetype, player.archetype));
       } else {
         // Check for entity at this position
         const entity = entityAt[`${mx},${my}`];
         if (entity) {
           if (entity.kind === 'being') {
-            let glyph = entity.glyph;
-            let color = entity.color;
-            if (renderingBeings?.[entity.id]) {
-              const override = renderingBeings[entity.id];
-              if (override.glyph) glyph = override.glyph;
-              if (override.color) color = override.color;
-            }
-            row.push({ ch: glyph, color });
+            // Use the archetype's emoji (if any) — entity objects copy
+            // glyph/color up front but not emoji, so read from the index.
+            const archetypeDef = definition._index.beings[entity.id] || entity;
+            row.push(resolveBeing(archetypeDef, entity.id));
           } else if (entity.kind === 'item') {
-            let glyph = entity.glyph;
-            let color = entity.color;
-            if (renderingItems?.[entity.id]) {
-              const override = renderingItems[entity.id];
-              if (override.glyph) glyph = override.glyph;
-              if (override.color) color = override.color;
-            }
-            row.push({ ch: glyph, color });
+            const itemDef = definition._index.items[entity.id] || entity;
+            row.push(resolveItem(itemDef, entity.id));
           } else {
             const tile = map.tiles[my][mx];
             row.push({ ch: tile, color: tile === '#' ? 'gray' : 'white' });
@@ -81,7 +101,11 @@ export function getVisibleTiles(state, viewW, viewH, fovMap) {
           let color = tile === '#' ? 'gray' : (tile === '>' ? 'yellow' : 'white');
           if (renderingTiles?.[tile]) {
             const override = renderingTiles[tile];
-            if (override.glyph) ch = override.glyph;
+            if (emojiMode && override.emoji) {
+              ch = override.emoji;
+            } else if (override.glyph) {
+              ch = override.glyph;
+            }
             if (override.color) color = override.color;
           }
           row.push({ ch, color });

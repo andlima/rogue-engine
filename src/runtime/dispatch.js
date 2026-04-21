@@ -304,7 +304,12 @@ export function dispatch(state, action) {
 
   // While a flow is active, only flow inputs / cancels advance it.
   // Any other dispatch is ignored to keep the flow state machine clean.
-  if (state.flowState && action.type !== 'flow_input' && action.type !== 'open_panel') {
+  // `toggle_display` is allowed through because it is a pure UI toggle —
+  // analogous to open_help, which remains active during flows.
+  if (state.flowState
+    && action.type !== 'flow_input'
+    && action.type !== 'open_panel'
+    && action.type !== 'toggle_display') {
     return state;
   }
 
@@ -327,6 +332,13 @@ export function dispatch(state, action) {
   else if (action.type === 'interact') {
     newState = handleInteract(state);
     if (!newState) return state;
+  }
+  // Toggle display mode: non-turn-advancing, does not run AI. Analogous to
+  // open_help, but mutates state (state.displayMode) so it must go through
+  // dispatch rather than being a CLI-local flag.
+  else if (action.type === 'toggle_display') {
+    const nextMode = state.displayMode === 'emoji' ? 'ascii' : 'emoji';
+    return { ...state, displayMode: nextMode };
   }
   // Try DSL-defined player actions first
   else if (action.type === 'action') {

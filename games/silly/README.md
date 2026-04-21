@@ -13,6 +13,30 @@ engine has no silly-game-specific code.
 node cli.js --game games/silly/game.yaml
 ```
 
+## Display modes
+
+Press `Tab` at any time to toggle between the classic ASCII look and an
+emoji dungeon: walls become 🧱, the player is 🧙, rats are 🐀, gold piles
+turn into 💰, and so on. The toggle is instantaneous and does not consume
+a turn — the AI does not move when you switch modes.
+
+Every being, item, and tile in `game.yaml` declares both a `glyph:` and
+an `emoji:`, and the Tab key is wired up under `input.bindings`:
+
+```yaml
+beings:
+  - id: dragon
+    label: Dragon
+    glyph: "D"
+    emoji: "🐉"
+    color: red
+# …
+
+input:
+  bindings:
+    - { key: "TAB", action: toggle_display }
+```
+
 ## Remixability Examples
 
 The whole point of a data-driven engine is that you can change the game
@@ -171,3 +195,45 @@ descend action:
 **Effect**: The game now has 6 levels. Level 6 spawns a Lich King (50 HP,
 10 ATK, 5 DEF) alongside the usual monsters. The player must defeat or
 evade the boss to reach the final stair and escape.
+
+---
+
+### 4. Swap two emoji mappings
+
+The emoji glyph for each being, item, and tile lives alongside the ASCII
+`glyph:` field. Rename the dragon's breath into something less traditional
+and turn gold into gems:
+
+```yaml
+# Before
+  - id: dragon
+    label: Dragon
+    glyph: "D"
+    emoji: "🐉"
+    color: red
+
+# After
+  - id: dragon
+    label: Dragon
+    glyph: "D"
+    emoji: "🦖"
+    color: red
+
+# And for gold:
+# Before
+  - id: gold
+    label: Gold
+    glyph: "$"
+    emoji: "💰"
+
+# After
+  - id: gold
+    label: Gold
+    glyph: "$"
+    emoji: "💎"
+```
+
+**Effect**: The ASCII rendering is unchanged (still `D` and `$`), but
+pressing Tab now turns dragons into 🦖 and gold piles into 💎. Because
+emoji are plain strings in YAML, this is a pure-data change — no engine
+code involved.

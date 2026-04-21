@@ -142,6 +142,12 @@ function validateBeings(raw, measurementIds) {
       measurements: {},
       tags: [],
     };
+    if (entry.emoji != null) {
+      if (typeof entry.emoji !== 'string') {
+        throw new SchemaError(`${path}.emoji`, `must be a string`);
+      }
+      being.emoji = entry.emoji;
+    }
     if (entry.measurements != null) {
       if (typeof entry.measurements !== 'object' || Array.isArray(entry.measurements)) {
         throw new SchemaError(`${path}.measurements`, `must be an object`);
@@ -199,6 +205,12 @@ function validateItems(raw) {
       tags: [],
       properties: {},
     };
+    if (entry.emoji != null) {
+      if (typeof entry.emoji !== 'string') {
+        throw new SchemaError(`${path}.emoji`, `must be a string`);
+      }
+      item.emoji = entry.emoji;
+    }
     if (entry.tags != null) {
       if (!Array.isArray(entry.tags) || !entry.tags.every(t => typeof t === 'string')) {
         throw new SchemaError(`${path}.tags`, `must be an array of strings`);
@@ -841,6 +853,18 @@ function validateRendering(raw, context) {
 
   const rendering = {};
 
+  // default_display_mode — 'ascii' | 'emoji'
+  if (raw.default_display_mode != null) {
+    const mode = raw.default_display_mode;
+    if (mode !== 'ascii' && mode !== 'emoji') {
+      throw new SchemaError(
+        'rendering.default_display_mode',
+        `must be 'ascii' or 'emoji' (got ${JSON.stringify(mode)})`,
+      );
+    }
+    rendering.default_display_mode = mode;
+  }
+
   // Tiles
   if (raw.tiles != null) {
     if (typeof raw.tiles !== 'object') {
@@ -848,10 +872,17 @@ function validateRendering(raw, context) {
     }
     rendering.tiles = {};
     for (const [symbol, override] of Object.entries(raw.tiles)) {
-      rendering.tiles[symbol] = {
+      const tileOverride = {
         glyph: override.glyph || symbol,
         color: override.color || null,
       };
+      if (override.emoji != null) {
+        if (typeof override.emoji !== 'string') {
+          throw new SchemaError(`rendering.tiles.${symbol}.emoji`, `must be a string`);
+        }
+        tileOverride.emoji = override.emoji;
+      }
+      rendering.tiles[symbol] = tileOverride;
     }
   }
 
@@ -865,10 +896,17 @@ function validateRendering(raw, context) {
       if (!context.beingIds.has(id)) {
         throw new SchemaError(`rendering.beings.${id}`, `unknown being '${id}'`);
       }
-      rendering.beings[id] = {
+      const beingOverride = {
         glyph: override.glyph || null,
         color: override.color || null,
       };
+      if (override.emoji != null) {
+        if (typeof override.emoji !== 'string') {
+          throw new SchemaError(`rendering.beings.${id}.emoji`, `must be a string`);
+        }
+        beingOverride.emoji = override.emoji;
+      }
+      rendering.beings[id] = beingOverride;
     }
   }
 
@@ -882,10 +920,17 @@ function validateRendering(raw, context) {
       if (!context.itemIds.has(id)) {
         throw new SchemaError(`rendering.items.${id}`, `unknown item '${id}'`);
       }
-      rendering.items[id] = {
+      const itemOverride = {
         glyph: override.glyph || null,
         color: override.color || null,
       };
+      if (override.emoji != null) {
+        if (typeof override.emoji !== 'string') {
+          throw new SchemaError(`rendering.items.${id}.emoji`, `must be a string`);
+        }
+        itemOverride.emoji = override.emoji;
+      }
+      rendering.items[id] = itemOverride;
     }
   }
 
@@ -906,6 +951,12 @@ function validateRendering(raw, context) {
       }
       if (rule.glyph_color) validated.glyph_color = rule.glyph_color;
       if (rule.glyph) validated.glyph = rule.glyph;
+      if (rule.emoji != null) {
+        if (typeof rule.emoji !== 'string') {
+          throw new SchemaError(`${path}.emoji`, `must be a string`);
+        }
+        validated.emoji = rule.emoji;
+      }
       return validated;
     });
   }

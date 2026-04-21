@@ -35,6 +35,11 @@ export const BUILTIN_ACTIONS = {
   move_e: { id: 'move_e', label: 'Move east',  summary: 'Move one tile east' },
   move_w: { id: 'move_w', label: 'Move west',  summary: 'Move one tile west' },
   interact: { id: 'interact', label: 'Interact', summary: 'Interact with the current tile' },
+  toggle_display: {
+    id: 'toggle_display',
+    label: 'Toggle display',
+    summary: 'Switch between ASCII and emoji display modes',
+  },
 };
 
 export const BUILTIN_ACTION_IDS = new Set(Object.keys(BUILTIN_ACTIONS));
