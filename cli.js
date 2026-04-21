@@ -133,6 +133,7 @@ function draw() {
   process.stdout.write('\x1b[2J\x1b[H');
   if (state.terminal) {
     console.log(`Game over — ${state.terminal} (${state.terminalReason ?? 'unknown'}).`);
+    console.log('Press any key to exit');
     return;
   }
   if (quitPending) {
@@ -228,18 +229,35 @@ function actOnBinding(binding) {
 
 draw();
 
-process.stdin.setRawMode(true);
+// Raw mode is a TTY-only feature. When stdin is piped (e.g. in the
+// subprocess regression test), setRawMode is undefined — skip it so the
+// CLI is still drivable in that configuration.
+if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdin.resume();
 process.stdin.setEncoding('utf-8');
 
+function exitAfterRestore() {
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  process.stdin.pause();
+  process.exit(0);
+}
+
 process.stdin.on('data', (raw) => {
+  // After a terminal state, any keypress exits — short-circuit above every
+  // other branch so the quit-confirm pathway is unreachable post-game-over.
+  if (state.terminal) {
+    exitAfterRestore();
+    return;
+  }
+
   // Quit-confirm prompt short-circuits all other input.
   if (quitPending) {
     if (raw === 'y' || raw === 'Y') {
       state = { ...state, terminal: 'lose', terminalReason: 'quit' };
       quitPending = false;
       draw();
-      process.exit(0);
+      exitAfterRestore();
+      return;
     }
     quitPending = false;
     draw();
