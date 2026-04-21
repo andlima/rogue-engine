@@ -64,6 +64,17 @@ export function createState(definition, seed) {
   } else {
     spawnX = map ? map.spawn.x : 0;
     spawnY = map ? map.spawn.y : 0;
+    if (map && Array.isArray(map.placements)) {
+      for (const p of map.placements) {
+        const ent = createEntity(p.id, p.x, p.y, definition);
+        if (!ent) {
+          throw new Error(
+            `createState: placement '${p.id}' at (${p.x},${p.y}) did not resolve to a being or item`
+          );
+        }
+        entities.push(ent);
+      }
+    }
   }
 
   const player = {
