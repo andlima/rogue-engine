@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rogue-engine</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "yaml": "https://esm.sh/yaml@2.7.0"
+      }
+    }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: #0a0a0a;
+      color: #cccccc;
+      font-family: monospace;
+      min-height: 100vh;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 12px;
+      gap: 8px;
+    }
+    #game {
+      display: block;
+      background: #0a0a0a;
+      image-rendering: pixelated;
+    }
+    #status {
+      font-size: 14px;
+      color: #bbbbbb;
+      min-height: 1.4em;
+      padding: 4px 0;
+    }
+    #messages {
+      width: 100%;
+      max-width: 640px;
+      max-height: 6em;
+      overflow-y: auto;
+      font-size: 13px;
+      color: #aaaa77;
+      line-height: 1.4;
+      padding: 4px 8px;
+      white-space: pre-wrap;
+    }
+    #key-hint {
+      font-size: 12px;
+      color: #888888;
+      padding: 4px 0;
+      min-height: 1.2em;
+    }
+    #help {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.9);
+      z-index: 10;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    #help.visible {
+      display: flex;
+    }
+    #help pre {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 16px 20px;
+      color: #cccccc;
+      font-size: 13px;
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="588" height="420"></canvas>
+  <div id="status"></div>
+  <div id="messages"></div>
+  <div id="key-hint"></div>
+  <div id="help"><pre id="help-body"></pre></div>
+
+  <script type="module">
+    // Entry point — imports from the same module graph as cli.js:
+    //   ./src/config/loader.js   (YAML → definition)
+    //   ./src/runtime/state.js   (GameState creation, via session)
+    //   ./src/runtime/session.js (surface-agnostic game loop)
+    import { loadFromString } from './src/config/loader.js';
+    import { createSession } from './src/runtime/session.js';
+    import { getVisibleTiles } from './src/runtime/view.js';
+    import { computeFOV } from './src/runtime/fov.js';
+    import { CanvasRenderer } from './src/renderer/canvas.js';
+    import { renderStatus, renderMessages, drawHelpPanel, drawKeyHint } from './src/renderer/ascii.js';
+    import { getHelpRows, getKeyHint } from './src/input/help.js';
+
+    const VIEW_W = 21;
+    const VIEW_H = 15;
+
+    const canvasEl = document.getElementById('game');
+    const statusEl = document.getElementById('status');
+    const messagesEl = document.getElementById('messages');
+    const keyHintEl = document.getElementById('key-hint');
+    const helpEl = document.getElementById('help');
+    const helpBodyEl = document.getElementById('help-body');
+
+    function domKeyToNamed(event) {
+      const k = event.key;
+      let base;
+      switch (k) {
+        case 'ArrowUp':    base = 'UP'; break;
+        case 'ArrowDown':  base = 'DOWN'; break;
+        case 'ArrowLeft':  base = 'LEFT'; break;
+        case 'ArrowRight': base = 'RIGHT'; break;
+        case 'Enter':      base = 'ENTER'; break;
+        case 'Escape':     base = 'ESC'; break;
+        case 'Tab':        base = 'TAB'; break;
+        case ' ':          base = 'SPACE'; break;
+        case 'Backspace':  base = 'BACKSPACE'; break;
+        case 'Delete':     base = 'DELETE'; break;
+        case 'Home':       base = 'HOME'; break;
+        case 'End':        base = 'END'; break;
+        case 'PageUp':     base = 'PAGEUP'; break;
+        case 'PageDown':   base = 'PAGEDOWN'; break;
+        case 'Insert':     base = 'INSERT'; break;
+        default:
+          if (k && k.length === 1) {
+            base = k;
+          } else if (/^F\d{1,2}$/.test(k)) {
+            base = k.toUpperCase();
+          } else {
+            return null;
+          }
+      }
+      const mods = [];
+      if (event.ctrlKey) mods.push('CTRL');
+      if (event.shiftKey && base.length !== 1) mods.push('SHIFT');
+      if (event.altKey) mods.push('ALT');
+      return mods.length ? `${mods.join('+')}+${base}` : base;
+    }
+
+    async function boot() {
+      let yamlText;
+      try {
+        const res = await fetch('./games/silly/game.yaml');
+        if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+        yamlText = await res.text();
+      } catch (err) {
+        statusEl.textContent = `Failed to load game: ${err.message}`;
+        console.error(err);
+        return;
+      }
+
+      const definition = loadFromString(yamlText);
+      const session = createSession(definition);
+      const renderer = new CanvasRenderer(canvasEl, definition.rendering);
+
+      function redraw() {
+        const state = session.getState();
+
+        if (state.terminal) {
+          renderer.clear();
+          statusEl.textContent = `Game over — ${state.terminal} (${state.terminalReason ?? 'unknown'}).`;
+          messagesEl.textContent = '';
+          keyHintEl.textContent = '';
+          helpEl.classList.remove('visible');
+          return;
+        }
+
+        if (session.getHelpOpen()) {
+          helpBodyEl.textContent = drawHelpPanel(getHelpRows(state.definition, state));
+          helpEl.classList.add('visible');
+          return;
+        }
+        helpEl.classList.remove('visible');
+
+        if (session.getQuitPending()) {
+          statusEl.textContent = 'Quit? (y/n)';
+          return;
+        }
+
+        const fovMap = state.map ? computeFOV(state.map, state.player.x, state.player.y) : undefined;
+        const grid = getVisibleTiles(state, VIEW_W, VIEW_H, fovMap);
+        renderer.drawGrid(grid, state);
+
+        const reticle = session.getReticle();
+        if (reticle) {
+          const halfW = Math.floor(VIEW_W / 2);
+          const halfH = Math.floor(VIEW_H / 2);
+          const viewOrigin = { x: state.player.x - halfW, y: state.player.y - halfH };
+          const indicator = definition.ui?.hud?.target_indicator || { glyph: '*', color: 'yellow' };
+          renderer.drawReticle(grid, viewOrigin, reticle, indicator);
+        }
+
+        statusEl.textContent = renderStatus(state);
+        messagesEl.textContent = renderMessages(state).join('\n');
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+
+        const hint = getKeyHint(state.definition, state, session.getIntrinsicHints());
+        keyHintEl.textContent = hint ? drawKeyHint(hint) : '? help  ·  CTRL+c quit';
+      }
+
+      document.addEventListener('keydown', (event) => {
+        const key = domKeyToNamed(event);
+        if (key == null) return;
+        event.preventDefault();
+        session.handleKey(key);
+        redraw();
+      });
+
+      redraw();
+    }
+
+    boot();
+  </script>
+</body>
+</html>

@@ -6,6 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node cli.js",
+    "serve": "node scripts/serve.js",
     "test": "node --test test/**/*.test.js"
   },
   "keywords": ["roguelike", "game-engine", "data-driven", "yaml"],
