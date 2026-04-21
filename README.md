@@ -14,6 +14,15 @@ node cli.js --game games/minimal.yaml
 
 Move with **arrow keys** or **WASD**. Quit with **q**.
 
+## Playing in the browser
+
+```bash
+npm run serve
+```
+
+Then open [http://localhost:8000](http://localhost:8000). Arrow keys to
+move, TAB to toggle emoji mode, `?` for help.
+
 ## Project Structure
 
 ```

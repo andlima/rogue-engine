@@ -59,6 +59,41 @@ The ANSI renderer (`src/renderer/ascii.js`) exposes:
 All panel / prompt / reticle output is plain text; colors via ANSI
 escape codes.
 
+## Browser renderer
+
+`src/renderer/canvas.js` paints the map grid to a `<canvas>` element.
+The class is constructed with `(canvasEl, renderingConfig)` — the
+element is injected so the module stays importable in Node for unit
+tests. It exposes:
+
+- `drawGrid(grid, stateOrMode)` — paints a 2D `{ch, color}` grid to
+  the canvas using `ctx.fillText` per cell. Honors
+  `rendering.tiles` overrides and `state.displayMode` the same way
+  `renderToString` does.
+- `drawReticle(grid, viewOrigin, target, indicator)` — overlays the
+  indicator glyph on the already-painted grid at the target's on-grid
+  position.
+- `clear()` — clears the canvas between frames.
+
+HUD / messages / help / key-hint are rendered into DOM elements by the
+browser entry (`index.html`), not through renderer methods. The same
+`renderStatus`, `renderMessages`, `drawHelpPanel`, and `drawKeyHint`
+helpers from `ascii.js` produce the strings; the browser pastes them
+to `textContent` and the CLI writes them to stdout.
+
+v1 deferrals (not implemented in the browser):
+
+- **Panels and prompt banners** — `drawPanel` / `drawPrompt` are CLI-
+  only surfaces. If a flow step triggers a panel during browser play
+  the v1 browser falls through to the default grid render; the player
+  can still step / cancel via keyboard but the panel contents are not
+  drawn. Silly-game's default gameplay loop doesn't invoke panels, so
+  this is a cosmetic limitation, not a playability blocker.
+- **Sprite rendering** — glyph text on canvas only; no sprite sheet.
+- **Hold-to-repeat / synthetic key-repeat** — browser OS auto-repeat
+  on held keys is the only repeat.
+- **Touch controls and mobile action bar** — desktop keyboard only.
+
 ## Display modes
 
 The engine ships two map-display modes:
@@ -139,11 +174,3 @@ mistakes and their fixes:
 
 The full rule set lives in `docs/schema.md` under "Allowed emoji".
 
-## Canvas renderer stub
-
-`src/renderer/canvas.js` ships as a thin stub so `dsl-actions-world-
-rendering` can prove the contract is renderer-agnostic without
-committing to a canvas implementation. Each method throws
-`"not implemented"` with a TODO pointer. Accepting the same semantic
-descriptors as the ANSI renderer is the whole point — future canvas
-work fills in the bodies, nothing changes upstream.

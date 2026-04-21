@@ -4,15 +4,41 @@ import { CanvasRenderer } from '../src/renderer/canvas.js';
 import { renderToString, renderStatus, renderMessages, getBeingAppearance, getItemAppearance, drawPanel, drawPrompt, drawReticle, drawHelpPanel, drawKeyHint } from '../src/renderer/ascii.js';
 import { parse as parseExpr } from '../src/expressions/parser.js';
 
-describe('CanvasRenderer stub', () => {
-  it('accepts rendering config in constructor', () => {
-    const renderer = new CanvasRenderer({ tiles: {}, beings: {} });
+function makeStubCanvas() {
+  const calls = [];
+  const ctx = {
+    _calls: calls,
+    fillStyle: null,
+    font: '',
+    textBaseline: '',
+    textAlign: '',
+    fillText: (...args) => calls.push(['fillText', ...args]),
+    fillRect: (...args) => calls.push(['fillRect', ...args]),
+    clearRect: (...args) => calls.push(['clearRect', ...args]),
+    measureText: () => ({ width: 10 }),
+  };
+  return {
+    width: 0,
+    height: 0,
+    _ctx: ctx,
+    getContext: () => ctx,
+  };
+}
+
+describe('CanvasRenderer', () => {
+  it('accepts rendering config alongside an injected canvas element', () => {
+    const canvas = makeStubCanvas();
+    const renderer = new CanvasRenderer(canvas, { tiles: {}, beings: {} });
     assert.ok(renderer.config);
+    assert.equal(renderer.canvas, canvas);
+    assert.ok(renderer.ctx);
   });
 
-  it('exposes a draw(state) method that throws not-implemented', () => {
-    const renderer = new CanvasRenderer({});
-    assert.throws(() => renderer.draw({}), /not implemented/);
+  it('exposes drawGrid, drawReticle, and clear methods', () => {
+    const renderer = new CanvasRenderer(makeStubCanvas(), {});
+    assert.equal(typeof renderer.drawGrid, 'function');
+    assert.equal(typeof renderer.drawReticle, 'function');
+    assert.equal(typeof renderer.clear, 'function');
   });
 });
 
@@ -82,21 +108,6 @@ describe('ANSI renderer: interaction-flow surfaces', () => {
     assert.equal(overlay[0][2].color, 'yellow');
     // Original grid untouched
     assert.equal(grid[0][2].ch, '.');
-  });
-});
-
-describe('Canvas renderer: flow-surface stubs', () => {
-  it('drawPanel / drawPrompt / drawReticle all throw not-implemented', () => {
-    const r = new CanvasRenderer({});
-    assert.throws(() => r.drawPanel({}, 0), /not implemented/);
-    assert.throws(() => r.drawPrompt({}), /not implemented/);
-    assert.throws(() => r.drawReticle([], {}, {}, {}), /not implemented/);
-  });
-
-  it('drawHelpPanel and drawKeyHint throw not-implemented with TODO pointer', () => {
-    const r = new CanvasRenderer({});
-    assert.throws(() => r.drawHelpPanel({ title: 'Commands', sections: [] }), /not implemented/);
-    assert.throws(() => r.drawKeyHint('? help · ESC cancel'), /not implemented/);
   });
 });
 
