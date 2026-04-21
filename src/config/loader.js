@@ -36,6 +36,83 @@ function requireNumber(obj, key, path) {
   return obj[key];
 }
 
+// ── Emoji width validation ───────────────────────────────────────────────
+//
+// The ANSI renderer trusts every declared `emoji` to occupy exactly two
+// terminal columns (docs/rendering.md). We enforce that at load time by
+// rejecting strings whose width is unreliable: ZWJ sequences, skin-tone
+// composites, flag sequences, multi-grapheme strings, and single BMP
+// codepoints without VS16. See specs/tasks/emoji-width-validation.md.
+
+const ZWJ = 0x200D;
+const VS16 = 0xFE0F;
+const SKIN_TONE_MIN = 0x1F3FB;
+const SKIN_TONE_MAX = 0x1F3FF;
+const REGIONAL_MIN = 0x1F1E6;
+const REGIONAL_MAX = 0x1F1FF;
+const TAG_MIN = 0xE0020;
+const TAG_MAX = 0xE007F;
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function validateEmojiString(str, path) {
+  if (str === '' || /^\s+$/.test(str)) {
+    throw new SchemaError(
+      path,
+      `emoji must be a non-empty string; omit the field to fall back to the ASCII glyph`
+    );
+  }
+  const display = JSON.stringify(str);
+  for (const ch of str) {
+    const cp = ch.codePointAt(0);
+    if (cp === ZWJ) {
+      throw new SchemaError(
+        path,
+        `emoji ${display} contains a ZWJ sequence; pick a single-codepoint emoji like "🏴" or "☠️"`
+      );
+    }
+    if (cp >= SKIN_TONE_MIN && cp <= SKIN_TONE_MAX) {
+      throw new SchemaError(
+        path,
+        `emoji ${display} contains a skin-tone modifier; use the base emoji without the modifier (e.g. "🧔")`
+      );
+    }
+    if (cp >= REGIONAL_MIN && cp <= REGIONAL_MAX) {
+      throw new SchemaError(
+        path,
+        `emoji ${display} is a flag sequence whose width is terminal-dependent; pick a non-flag emoji`
+      );
+    }
+    if (cp >= TAG_MIN && cp <= TAG_MAX) {
+      throw new SchemaError(
+        path,
+        `emoji ${display} is a tag / flag sequence whose width is terminal-dependent; pick a non-flag emoji`
+      );
+    }
+  }
+  let graphemeCount = 0;
+  for (const _ of graphemeSegmenter.segment(str)) {
+    graphemeCount++;
+    if (graphemeCount > 1) {
+      throw new SchemaError(
+        path,
+        `emoji ${display} is more than one grapheme; use a single emoji per field`
+      );
+    }
+  }
+  const firstCp = str.codePointAt(0);
+  if (firstCp < 0x10000) {
+    const isVS16Form = str.length === 2 && str.charCodeAt(1) === VS16;
+    if (!isVS16Form) {
+      const suggestion = JSON.stringify(String.fromCodePoint(firstCp) + '️');
+      throw new SchemaError(
+        path,
+        `emoji ${display} is a text-presentation codepoint without VS16; write ${suggestion} (append U+FE0F) to force emoji presentation`
+      );
+    }
+  }
+}
+
 // ── Levenshtein for near-miss suggestions ────────────────────────────────
 
 function levenshtein(a, b) {
@@ -146,6 +223,7 @@ function validateBeings(raw, measurementIds) {
       if (typeof entry.emoji !== 'string') {
         throw new SchemaError(`${path}.emoji`, `must be a string`);
       }
+      validateEmojiString(entry.emoji, `${path}.emoji`);
       being.emoji = entry.emoji;
     }
     if (entry.measurements != null) {
@@ -209,6 +287,7 @@ function validateItems(raw) {
       if (typeof entry.emoji !== 'string') {
         throw new SchemaError(`${path}.emoji`, `must be a string`);
       }
+      validateEmojiString(entry.emoji, `${path}.emoji`);
       item.emoji = entry.emoji;
     }
     if (entry.tags != null) {
@@ -920,6 +999,7 @@ function validateRendering(raw, context) {
         if (typeof override.emoji !== 'string') {
           throw new SchemaError(`rendering.tiles.${symbol}.emoji`, `must be a string`);
         }
+        validateEmojiString(override.emoji, `rendering.tiles.${symbol}.emoji`);
         tileOverride.emoji = override.emoji;
       }
       rendering.tiles[symbol] = tileOverride;
@@ -944,6 +1024,7 @@ function validateRendering(raw, context) {
         if (typeof override.emoji !== 'string') {
           throw new SchemaError(`rendering.beings.${id}.emoji`, `must be a string`);
         }
+        validateEmojiString(override.emoji, `rendering.beings.${id}.emoji`);
         beingOverride.emoji = override.emoji;
       }
       rendering.beings[id] = beingOverride;
@@ -968,6 +1049,7 @@ function validateRendering(raw, context) {
         if (typeof override.emoji !== 'string') {
           throw new SchemaError(`rendering.items.${id}.emoji`, `must be a string`);
         }
+        validateEmojiString(override.emoji, `rendering.items.${id}.emoji`);
         itemOverride.emoji = override.emoji;
       }
       rendering.items[id] = itemOverride;
@@ -995,6 +1077,7 @@ function validateRendering(raw, context) {
         if (typeof rule.emoji !== 'string') {
           throw new SchemaError(`${path}.emoji`, `must be a string`);
         }
+        validateEmojiString(rule.emoji, `${path}.emoji`);
         validated.emoji = rule.emoji;
       }
       return validated;

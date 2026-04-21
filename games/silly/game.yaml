@@ -170,7 +170,7 @@ items:
   - id: sword
     label: Sword
     glyph: "/"
-    emoji: "⚔"
+    emoji: "⚔️"
     color: bright_cyan
     kind: equipment
     properties:
@@ -554,7 +554,6 @@ rendering:
       color: gray
     ".":
       glyph: "."
-      emoji: "·"
       color: white
 
   beings:
