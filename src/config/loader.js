@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parse as parseExpr, collectPaths, collectCalls, ExprSyntaxError } from '../expressions/parser.js';
 import { EFFECT_TYPES } from '../runtime/effects.js';
@@ -1902,6 +1901,7 @@ export function loadFromString(yamlString) {
  * Load a game definition from a YAML file path.
  */
 export async function loadFromFile(filePath) {
+  const { readFile } = await import('node:fs/promises');
   const content = await readFile(filePath, 'utf-8');
   return loadFromString(content);
 }
