@@ -473,3 +473,184 @@ map:
     assert.deepEqual(def.map.placements, []);
   });
 });
+
+describe('loader - emoji validation', () => {
+  const withBeingEmoji = (emoji) => `
+meta:
+  id: test
+  name: Test
+  version: "1.0.0"
+  player_archetype: player
+measurements:
+  - id: hp
+    label: HP
+    initial: 10
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    emoji: ${JSON.stringify(emoji)}
+    color: white
+items: []
+map:
+  width: 3
+  height: 3
+  tiles:
+    - "###"
+    - "#@#"
+    - "###"
+`;
+
+  const rejectionCases = [
+    { label: 'ZWJ sequence (pirate flag)', emoji: '🏴‍☠️', needle: /ZWJ/ },
+    { label: 'bare text-presentation (⚔)', emoji: '⚔', needle: /VS16|text-presentation/ },
+    { label: 'skin-tone modifier', emoji: '🧔🏽', needle: /skin-tone/ },
+    { label: 'regional indicator flag (🇺🇸)', emoji: '🇺🇸', needle: /flag/ },
+    { label: 'multi-grapheme (⚔⚔)', emoji: '⚔⚔', needle: /grapheme/ },
+    { label: 'empty string', emoji: '', needle: /non-empty/ },
+    { label: 'single ASCII char (@)', emoji: '@', needle: /VS16|text-presentation/ },
+  ];
+
+  for (const { label, emoji, needle } of rejectionCases) {
+    it(`rejects ${label}`, () => {
+      assert.throws(() => loadFromString(withBeingEmoji(emoji)), (err) => {
+        assert.equal(err.name, 'SchemaError');
+        assert.equal(err.path, 'beings[0].emoji');
+        assert.match(err.message, needle);
+        return true;
+      });
+    });
+  }
+
+  const acceptanceCases = [
+    { label: 'supplementary plane without VS16 (🐀)', emoji: '🐀' },
+    { label: 'supplementary plane (💰)', emoji: '💰' },
+    { label: 'BMP base + VS16 (⚔️)', emoji: '⚔️' },
+    { label: 'supplementary + VS16 (🛡️)', emoji: '🛡️' },
+  ];
+
+  for (const { label, emoji } of acceptanceCases) {
+    it(`accepts ${label}`, () => {
+      const def = loadFromString(withBeingEmoji(emoji));
+      assert.equal(def.beings[0].emoji, emoji);
+    });
+  }
+
+  it('still allows missing emoji field', () => {
+    const yaml = `
+meta:
+  id: test
+  name: Test
+  version: "1.0.0"
+  player_archetype: player
+measurements:
+  - id: hp
+    label: HP
+    initial: 10
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+items: []
+map:
+  width: 3
+  height: 3
+  tiles:
+    - "###"
+    - "#@#"
+    - "###"
+`;
+    const def = loadFromString(yaml);
+    assert.equal(def.beings[0].emoji, undefined);
+  });
+
+  it('validates rendering.tiles emoji overrides', () => {
+    const yaml = `
+meta:
+  id: test
+  name: Test
+  version: "1.0.0"
+  player_archetype: player
+measurements:
+  - id: hp
+    label: HP
+    initial: 10
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+items: []
+map:
+  width: 3
+  height: 3
+  tiles:
+    - "###"
+    - "#@#"
+    - "###"
+rendering:
+  tiles:
+    "#":
+      emoji: "⚔"
+`;
+    assert.throws(() => loadFromString(yaml), (err) => {
+      assert.equal(err.name, 'SchemaError');
+      assert.equal(err.path, 'rendering.tiles.#.emoji');
+      assert.match(err.message, /VS16|text-presentation/);
+      return true;
+    });
+  });
+
+  it('validates rendering.items emoji overrides', () => {
+    const yaml = `
+meta:
+  id: test
+  name: Test
+  version: "1.0.0"
+  player_archetype: player
+measurements:
+  - id: hp
+    label: HP
+    initial: 10
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+items:
+  - id: coin
+    label: Coin
+    glyph: "$"
+    color: yellow
+    kind: currency
+map:
+  width: 3
+  height: 3
+  tiles:
+    - "###"
+    - "#@#"
+    - "###"
+rendering:
+  items:
+    coin:
+      emoji: "🇺🇸"
+`;
+    assert.throws(() => loadFromString(yaml), (err) => {
+      assert.equal(err.name, 'SchemaError');
+      assert.equal(err.path, 'rendering.items.coin.emoji');
+      assert.match(err.message, /flag/);
+      return true;
+    });
+  });
+
+  it('surfaces ZWJ rejection with correct path when loading from file', async () => {
+    const fixturePath = join(__dirname, 'fixtures', 'pirate-v2-like.yaml');
+    await assert.rejects(loadFromFile(fixturePath), (err) => {
+      assert.equal(err.name, 'SchemaError');
+      assert.equal(err.path, 'beings[0].emoji');
+      assert.match(err.message, /ZWJ/);
+      return true;
+    });
+  });
+});

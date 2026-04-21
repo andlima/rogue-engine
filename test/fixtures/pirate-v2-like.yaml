@@ -1,0 +1,27 @@
+meta:
+  id: pirate-v2-like
+  name: Pirate Fixture
+  version: "0.1.0"
+  player_archetype: captain
+
+measurements:
+  - id: hp
+    label: HP
+    initial: 10
+
+beings:
+  - id: captain
+    label: Captain
+    glyph: "@"
+    emoji: "🏴‍☠️"
+    color: white
+
+items: []
+
+map:
+  width: 5
+  height: 3
+  tiles:
+    - "#####"
+    - "#.@.#"
+    - "#####"

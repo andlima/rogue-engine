@@ -113,3 +113,26 @@ The override walk for beings and items is: `status_rules` →
 `rendering.{beings,items}.<id>` → archetype default. Emoji resolution
 follows the same chain so conditional glyph rules also work in emoji
 mode. See `docs/rendering.md` for the full display-mode contract.
+
+### Allowed emoji
+
+Every declared `emoji` must be a single grapheme that the engine can
+trust to occupy exactly two terminal columns. The loader rejects any
+`emoji` string that:
+
+- Is empty or whitespace-only.
+- Contains a ZWJ (U+200D) — e.g. `🏴‍☠️`, `👨‍👩‍👧`. Pick a single-
+  codepoint emoji instead.
+- Contains a skin-tone modifier (U+1F3FB..U+1F3FF) — e.g. `🧔🏽`.
+  Use the base emoji without the modifier.
+- Contains a regional indicator (U+1F1E6..U+1F1FF) or tag codepoint
+  (U+E0020..U+E007F) — i.e. flag sequences. Their width is terminal-
+  dependent.
+- Resolves to more than one extended grapheme cluster — e.g. `⚔⚔`.
+  Use one emoji per field.
+- Is a single BMP codepoint without VS16 (U+FE0F) — e.g. `⚔`, `☠`.
+  Append U+FE0F to force emoji presentation (`⚔️`, `☠️`). ASCII
+  letters like `@` also fall under this rule; if you want the ASCII
+  glyph, leave `emoji` unset — the renderer falls back automatically.
+
+See `docs/rendering.md` (Cell width in emoji mode) for the reasoning.

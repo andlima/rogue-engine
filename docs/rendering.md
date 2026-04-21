@@ -118,6 +118,27 @@ segmentation) is intentionally out of scope — authors who pick narrow
 or wide outliers (e.g. `·` as a floor emoji) accept the resulting
 alignment trade-off.
 
+Because the renderer assumes every declared emoji occupies exactly two
+columns, the loader enforces that assumption at parse time. Any
+`emoji` field that is not a single grapheme whose emoji-presentation
+form is trustable across terminals is rejected with a `SchemaError`
+pointing at the offending path. The three most common author-facing
+mistakes and their fixes:
+
+- **ZWJ sequences** (e.g. `🏴‍☠️`, `👨‍👩‍👧`) — terminals often
+  render these as three or more columns, or break them apart into
+  component glyphs. Pick a single-codepoint emoji that matches the
+  intent (e.g. `🏴` or `☠️`).
+- **Bare text-presentation emoji** (e.g. `⚔`, `☠`, `⛵`) — these are
+  BMP codepoints whose default presentation is *text*, so width is
+  terminal-dependent. Append U+FE0F to force emoji presentation
+  (`⚔️`, `☠️`, `⛵️`).
+- **Skin-tone modifiers** (e.g. `🧔🏽`) — the base emoji plus tone
+  modifier is a multi-codepoint sequence whose rendered width varies.
+  Drop the modifier and use the base emoji (e.g. `🧔`).
+
+The full rule set lives in `docs/schema.md` under "Allowed emoji".
+
 ## Canvas renderer stub
 
 `src/renderer/canvas.js` ships as a thin stub so `dsl-actions-world-
