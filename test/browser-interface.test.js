@@ -4,6 +4,12 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { CanvasRenderer } from '../src/renderer/canvas.js';
+import {
+  DEFAULT_GAME_ID,
+  isValidGameId,
+  resolveGameId,
+  getCandidatePaths,
+} from '../src/browser/game-select.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -97,6 +103,63 @@ describe('browser-interface: browser-safe imports', () => {
     const nodeSpecifiers = topImports.filter(s => s.startsWith('node:'));
     assert.deepEqual(nodeSpecifiers, [],
       `src/config/loader.js is loaded by the browser entry (index.html) and must not have top-level node: imports; found: ${nodeSpecifiers.join(', ')}`);
+  });
+});
+
+describe('browser-interface: game selection', () => {
+  it('DEFAULT_GAME_ID is "silly"', () => {
+    assert.equal(DEFAULT_GAME_ID, 'silly');
+  });
+
+  it('resolveGameId returns "silly" for empty URLSearchParams', () => {
+    assert.equal(resolveGameId(new URLSearchParams('')), 'silly');
+  });
+
+  it('resolveGameId returns "minimal" for game=minimal', () => {
+    assert.equal(resolveGameId(new URLSearchParams('game=minimal')), 'minimal');
+  });
+
+  it('resolveGameId returns default for game=../etc/passwd', () => {
+    assert.equal(resolveGameId(new URLSearchParams('game=../etc/passwd')), 'silly');
+  });
+
+  it('resolveGameId returns default for game=Minimal (uppercase)', () => {
+    assert.equal(resolveGameId(new URLSearchParams('game=Minimal')), 'silly');
+  });
+
+  it('resolveGameId returns default for empty game= value', () => {
+    assert.equal(resolveGameId(new URLSearchParams('game=')), 'silly');
+  });
+
+  it('isValidGameId accepts current game IDs', () => {
+    assert.equal(isValidGameId('silly'), true);
+    assert.equal(isValidGameId('minimal'), true);
+    assert.equal(isValidGameId('interact-demo'), true);
+    assert.equal(isValidGameId('toy-hit-and-heal'), true);
+  });
+
+  it('isValidGameId rejects invalid IDs', () => {
+    assert.equal(isValidGameId(''), false);
+    assert.equal(isValidGameId('../x'), false);
+    assert.equal(isValidGameId('a/b'), false);
+    assert.equal(isValidGameId('A'), false);
+    assert.equal(isValidGameId('-leading-dash'), false);
+    assert.equal(isValidGameId(null), false);
+    assert.equal(isValidGameId(undefined), false);
+  });
+
+  it('getCandidatePaths("silly") returns nested-first candidates', () => {
+    assert.deepEqual(getCandidatePaths('silly'), [
+      './games/silly/game.yaml',
+      './games/silly.yaml',
+    ]);
+  });
+
+  it('getCandidatePaths("minimal") returns nested-first candidates', () => {
+    assert.deepEqual(getCandidatePaths('minimal'), [
+      './games/minimal/game.yaml',
+      './games/minimal.yaml',
+    ]);
   });
 });
 

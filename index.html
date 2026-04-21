@@ -98,6 +98,7 @@
     import { CanvasRenderer } from './src/renderer/canvas.js';
     import { renderStatus, renderMessages, drawHelpPanel, drawKeyHint } from './src/renderer/ascii.js';
     import { getHelpRows, getKeyHint } from './src/input/help.js';
+    import { resolveGameId, getCandidatePaths } from './src/browser/game-select.js';
 
     const VIEW_W = 21;
     const VIEW_H = 15;
@@ -145,14 +146,34 @@
     }
 
     async function boot() {
+      const params = new URLSearchParams(window.location.search);
+      const gameId = resolveGameId(params);
+      const candidates = getCandidatePaths(gameId);
       let yamlText;
       try {
-        const res = await fetch('./games/silly/game.yaml');
-        if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-        yamlText = await res.text();
+        let lastErr = null;
+        let lastPath = null;
+        for (const path of candidates) {
+          lastPath = path;
+          try {
+            const res = await fetch(path);
+            if (res.ok) {
+              yamlText = await res.text();
+              lastErr = null;
+              break;
+            }
+            lastErr = new Error(`fetch failed: ${res.status}`);
+          } catch (err) {
+            lastErr = err;
+          }
+        }
+        if (yamlText == null) {
+          const detail = lastErr ? `${lastErr.message} (last attempted: ${lastPath})` : `not found (last attempted: ${lastPath})`;
+          throw new Error(detail);
+        }
       } catch (err) {
-        statusEl.textContent = `Failed to load game: ${err.message}`;
-        console.error(err);
+        statusEl.textContent = `Failed to load game "${gameId}": not found.`;
+        console.error(`Failed to load game "${gameId}":`, err);
         return;
       }
 
