@@ -76,6 +76,43 @@ describe('browser-interface: CanvasRenderer smoke', () => {
   });
 });
 
+describe('browser-interface: browser-safe imports', () => {
+  it('loader.js has no top-level node: imports', async () => {
+    const source = await readFile(join(ROOT, 'src/config/loader.js'), 'utf8');
+    const lines = source.split('\n');
+    const specifiers = [];
+    let inBlockComment = false;
+    for (const rawLine of lines) {
+      let line = rawLine;
+      if (inBlockComment) {
+        const end = line.indexOf('*/');
+        if (end === -1) continue;
+        line = line.slice(end + 2);
+        inBlockComment = false;
+      }
+      const trimmed = line.trim();
+      if (trimmed === '') continue;
+      if (trimmed.startsWith('//')) continue;
+      if (trimmed.startsWith('/*')) {
+        if (!trimmed.includes('*/')) inBlockComment = true;
+        continue;
+      }
+      const match = trimmed.match(/^import\s+.*?from\s+['"]([^'"]+)['"]/);
+      if (match) {
+        specifiers.push(match[1]);
+        continue;
+      }
+      break;
+    }
+    assert.ok(specifiers.length > 0, 'expected to find at least one top-level import in loader.js');
+    const nodeImports = specifiers.filter(s => s.startsWith('node:'));
+    assert.deepEqual(nodeImports, [],
+      `loader.js must not have top-level node: imports (found: ${nodeImports.join(', ')}). ` +
+      'Move Node-only imports behind a dynamic import() inside the function that needs them, ' +
+      'so the module stays browser-resolvable.');
+  });
+});
+
 describe('browser-interface: index.html structure', () => {
   it('contains the required DOM surfaces and script blocks', async () => {
     const html = await readFile(join(ROOT, 'index.html'), 'utf8');
