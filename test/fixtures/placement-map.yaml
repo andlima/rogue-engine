@@ -1,0 +1,54 @@
+meta:
+  id: placement-map
+  name: Placement Map
+  version: "0.1.0"
+  description: Test fixture — static map with pre-placed beings and items
+  player_archetype: player
+
+measurements:
+  - id: hp
+    label: Hit Points
+    min: 0
+    max: 20
+    initial: 10
+
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+    measurements:
+      hp: 10
+    tags: [player]
+  - id: crab
+    label: Crab
+    glyph: c
+    color: red
+    measurements:
+      hp: 3
+    tags: [monster]
+  - id: shark
+    label: Shark
+    glyph: S
+    color: blue
+    measurements:
+      hp: 8
+    tags: [monster]
+
+items:
+  - id: coin
+    label: Coin
+    glyph: "$"
+    color: yellow
+    kind: currency
+
+map:
+  width: 10
+  height: 6
+  tiles:
+    - "##########"
+    - "#........#"
+    - "#.@.c....#"
+    - "#....$...#"
+    - "#......S.#"
+    - "##########"

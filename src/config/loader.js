@@ -227,13 +227,38 @@ function validateItems(raw) {
   });
 }
 
-function validateMap(raw, extraTileChars) {
+/**
+ * Build a glyph → entity descriptor index used by `validateMap` to resolve
+ * non-tile map characters into entity placements. Beings and items share
+ * a single namespace; a glyph claimed by multiple entities produces a
+ * `collisions` entry so `validateMap` can decide per-use.
+ */
+function buildEntityGlyphIndex(beings, items) {
+  const index = Object.create(null);
+  const add = (glyph, entry) => {
+    if (typeof glyph !== 'string' || glyph.length === 0) return;
+    const existing = index[glyph];
+    if (!existing) {
+      index[glyph] = entry;
+    } else if (existing.collisions) {
+      existing.collisions.push(entry);
+    } else {
+      index[glyph] = { collisions: [existing, entry] };
+    }
+  };
+  for (const b of beings) add(b.glyph, { kind: 'being', id: b.id });
+  for (const it of items) add(it.glyph, { kind: 'item', id: it.id });
+  return index;
+}
+
+function validateMap(raw, extraTileChars, entityGlyphs) {
   if (!raw || typeof raw !== 'object') {
     // Map is now optional — procedural dungeon generation can replace it
     return null;
   }
   const allowed = new Set(['#', '.', '>', '<']);
   if (extraTileChars) for (const ch of extraTileChars) allowed.add(ch);
+  const glyphs = entityGlyphs ?? null;
   const width = requireNumber(raw, 'width', 'map');
   const height = requireNumber(raw, 'height', 'map');
   if (!Array.isArray(raw.tiles)) {
@@ -245,6 +270,7 @@ function validateMap(raw, extraTileChars) {
   let spawnCount = 0;
   let spawnX = -1;
   let spawnY = -1;
+  const placements = [];
   const tiles = raw.tiles.map((row, y) => {
     if (typeof row !== 'string') {
       throw new SchemaError(`map.tiles[${y}]`, `must be a string`);
@@ -259,10 +285,24 @@ function validateMap(raw, extraTileChars) {
         spawnY = y;
         return '.';
       }
-      if (!allowed.has(ch)) {
-        throw new SchemaError(`map.tiles[${y}][${x}]`, `unknown tile character '${ch}'`);
+      if (allowed.has(ch)) {
+        return ch;
       }
-      return ch;
+      if (glyphs) {
+        const entry = glyphs[ch];
+        if (entry) {
+          if (entry.collisions) {
+            const ids = entry.collisions.map(e => `${e.kind}:${e.id}`).join(', ');
+            throw new SchemaError(
+              `map.tiles[${y}][${x}]`,
+              `glyph '${ch}' matches multiple entities (${ids})`
+            );
+          }
+          placements.push({ kind: entry.kind, id: entry.id, x, y });
+          return '.';
+        }
+      }
+      throw new SchemaError(`map.tiles[${y}][${x}]`, `unknown tile character '${ch}'`);
     });
   });
   if (spawnCount === 0) {
@@ -271,7 +311,7 @@ function validateMap(raw, extraTileChars) {
   if (spawnCount > 1) {
     throw new SchemaError('map', `expected exactly one player spawn (@), found ${spawnCount}`);
   }
-  return { width, height, tiles, spawn: { x: spawnX, y: spawnY } };
+  return { width, height, tiles, spawn: { x: spawnX, y: spawnY }, placements };
 }
 
 // ── Expression validation ────────────────────────────────────────────────
@@ -1651,7 +1691,8 @@ export function loadFromString(yamlString) {
   // symbols declared here are permitted in `map.tiles`.
   const tiles = validateTiles(raw.tiles, context);
 
-  const map = validateMap(raw.map, tiles ? Object.keys(tiles) : null);
+  const entityGlyphs = buildEntityGlyphIndex(beings, items);
+  const map = validateMap(raw.map, tiles ? Object.keys(tiles) : null, entityGlyphs);
 
   // Prompts come before actions so flow steps can reference them by id.
   const uiPrompts = validateUiPrompts(raw.ui?.prompts, context);
