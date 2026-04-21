@@ -1,0 +1,52 @@
+meta:
+  id: quick-loss
+  name: Quick Loss
+  version: "0.1.0"
+  description: Test fixture — player starts at hp 1 and dies in one turn
+  player_archetype: player
+
+measurements:
+  - id: hp
+    label: Hit Points
+    min: 0
+    max: 10
+    initial: 1
+
+beings:
+  - id: player
+    label: Player
+    glyph: "@"
+    color: white
+    measurements:
+      hp: 1
+    tags: [player]
+
+items: []
+
+map:
+  width: 3
+  height: 3
+  tiles:
+    - "###"
+    - "#@#"
+    - "###"
+
+actions:
+  player:
+    - id: wait
+      trigger: wait
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: "-1"
+        - type: message
+          text: "{actor.name} succumbs."
+
+world:
+  loss_conditions:
+    - "player.hp <= 0"
+
+input:
+  bindings:
+    - { keys: ["."], action: wait }
