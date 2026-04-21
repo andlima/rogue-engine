@@ -76,6 +76,30 @@ describe('browser-interface: CanvasRenderer smoke', () => {
   });
 });
 
+describe('browser-interface: browser-safe imports', () => {
+  it('loader.js has no top-level node: imports', async () => {
+    const source = await readFile(join(ROOT, 'src/config/loader.js'), 'utf8');
+    const lines = source.split('\n');
+    const topImports = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*')
+          || trimmed.startsWith('*') || trimmed.startsWith('*/')) {
+        continue;
+      }
+      const importMatch = trimmed.match(/^import\s+.*\s+from\s+['"]([^'"]+)['"]/);
+      if (importMatch) {
+        topImports.push(importMatch[1]);
+        continue;
+      }
+      break;
+    }
+    const nodeSpecifiers = topImports.filter(s => s.startsWith('node:'));
+    assert.deepEqual(nodeSpecifiers, [],
+      `src/config/loader.js is loaded by the browser entry (index.html) and must not have top-level node: imports; found: ${nodeSpecifiers.join(', ')}`);
+  });
+});
+
 describe('browser-interface: index.html structure', () => {
   it('contains the required DOM surfaces and script blocks', async () => {
     const html = await readFile(join(ROOT, 'index.html'), 'utf8');
