@@ -13,7 +13,7 @@ function waitForGameOver(child, timeoutMs) {
     let buf = '';
     const onData = (chunk) => {
       buf += chunk.toString('utf8');
-      if (buf.includes('Game over')) {
+      if (buf.includes('Game over') && buf.includes('Press any key to exit')) {
         child.stdout.off('data', onData);
         clearTimeout(t);
         resolve(buf);
@@ -21,7 +21,7 @@ function waitForGameOver(child, timeoutMs) {
     };
     const t = setTimeout(() => {
       child.stdout.off('data', onData);
-      reject(new Error(`Timed out waiting for "Game over" (got: ${JSON.stringify(buf.slice(-200))})`));
+      reject(new Error(`Timed out waiting for game-over screen (got: ${JSON.stringify(buf.slice(-200))})`));
     }, timeoutMs);
     child.stdout.on('data', onData);
   });
