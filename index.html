@@ -77,9 +77,126 @@
       max-height: 90vh;
       overflow: auto;
     }
+    #launcher {
+      display: none;
+      width: 100%;
+      max-width: 640px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+      padding: 16px 12px;
+    }
+    #launcher h1 {
+      text-align: center;
+      color: #cccccc;
+      font-size: 22px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    #launcher hr {
+      border: none;
+      border-top: 1px solid #333;
+      margin: 8px 0;
+    }
+    #launcher-games {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .launcher-game {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: #141414;
+      color: #cccccc;
+      border: 1px solid #333;
+      padding: 10px 14px;
+      font-family: monospace;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .launcher-game:hover {
+      background: #1d1d1d;
+      border-color: #555;
+    }
+    .launcher-game .title {
+      display: block;
+      font-weight: bold;
+      color: #e6e6e6;
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+    .launcher-game .description {
+      display: block;
+      font-size: 12px;
+      color: #999999;
+    }
+    #launcher-empty {
+      color: #888888;
+      font-size: 13px;
+      font-style: italic;
+      padding: 8px 0;
+    }
+    #launcher label[for="launcher-upload"] {
+      display: block;
+      color: #bbbbbb;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    #launcher-upload {
+      color: #cccccc;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    #launcher-error {
+      color: #cc4444;
+      font-size: 13px;
+      min-height: 1.2em;
+      padding: 4px 0;
+    }
+    #back-to-menu {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: #141414;
+      color: #cccccc;
+      border: 1px solid #333;
+      padding: 4px 10px;
+      font-family: monospace;
+      font-size: 12px;
+      cursor: pointer;
+      z-index: 5;
+    }
+    #back-to-menu:hover {
+      background: #1d1d1d;
+      border-color: #555;
+    }
+    body.in-launcher #game,
+    body.in-launcher #status,
+    body.in-launcher #messages,
+    body.in-launcher #key-hint,
+    body.in-launcher #help,
+    body.in-launcher #back-to-menu {
+      display: none;
+    }
+    body.in-launcher #launcher {
+      display: flex;
+    }
   </style>
 </head>
 <body>
+  <section id="launcher">
+    <h1>rogue-engine</h1>
+    <div id="launcher-games"></div>
+    <hr>
+    <div>
+      <label for="launcher-upload">Or upload a YAML file</label>
+      <input type="file" id="launcher-upload" accept=".yaml,.yml,text/yaml,application/yaml">
+    </div>
+    <div id="launcher-error"></div>
+  </section>
+  <button id="back-to-menu">← Menu</button>
   <canvas id="game" width="588" height="420"></canvas>
   <div id="status"></div>
   <div id="messages"></div>
@@ -98,7 +215,8 @@
     import { CanvasRenderer } from './src/renderer/canvas.js';
     import { renderStatus, renderMessages, drawHelpPanel, drawKeyHint } from './src/renderer/ascii.js';
     import { getHelpRows, getKeyHint } from './src/input/help.js';
-    import { resolveGameId, getCandidatePaths } from './src/browser/game-select.js';
+    import { isValidGameId, getCandidatePaths } from './src/browser/game-select.js';
+    import { loadManifest } from './src/browser/manifest.js';
 
     const VIEW_W = 21;
     const VIEW_H = 15;
@@ -109,6 +227,16 @@
     const keyHintEl = document.getElementById('key-hint');
     const helpEl = document.getElementById('help');
     const helpBodyEl = document.getElementById('help-body');
+    const launcherEl = document.getElementById('launcher');
+    const launcherGamesEl = document.getElementById('launcher-games');
+    const launcherUploadEl = document.getElementById('launcher-upload');
+    const launcherErrorEl = document.getElementById('launcher-error');
+    const backToMenuEl = document.getElementById('back-to-menu');
+
+    let session = null;
+    let renderer = null;
+    let keyHandler = null;
+    let manifestCache = null;
 
     function domKeyToNamed(event) {
       const k = event.key;
@@ -145,43 +273,93 @@
       return mods.length ? `${mods.join('+')}+${base}` : base;
     }
 
-    async function boot() {
-      const params = new URLSearchParams(window.location.search);
-      const gameId = resolveGameId(params);
-      const candidates = getCandidatePaths(gameId);
-      let yamlText;
-      try {
-        let lastErr = null;
-        let lastPath = null;
-        for (const path of candidates) {
-          lastPath = path;
-          try {
-            const res = await fetch(path);
-            if (res.ok) {
-              yamlText = await res.text();
-              lastErr = null;
-              break;
-            }
-            lastErr = new Error(`fetch failed: ${res.status}`);
-          } catch (err) {
-            lastErr = err;
-          }
-        }
-        if (yamlText == null) {
-          const detail = lastErr ? `${lastErr.message} (last attempted: ${lastPath})` : `not found (last attempted: ${lastPath})`;
-          throw new Error(detail);
-        }
-      } catch (err) {
-        statusEl.textContent = `Failed to load game "${gameId}": not found.`;
-        console.error(`Failed to load game "${gameId}":`, err);
+    function showLauncher() {
+      document.body.classList.remove('in-game');
+      document.body.classList.add('in-launcher');
+    }
+
+    function showGame() {
+      document.body.classList.remove('in-launcher');
+      document.body.classList.add('in-game');
+    }
+
+    function renderManifestList(entries) {
+      launcherGamesEl.innerHTML = '';
+      if (!entries || entries.length === 0) {
+        const note = document.createElement('div');
+        note.id = 'launcher-empty';
+        note.textContent = 'No registered games available.';
+        launcherGamesEl.appendChild(note);
         return;
       }
+      for (const entry of entries) {
+        const btn = document.createElement('button');
+        btn.className = 'launcher-game';
+        btn.dataset.gameId = entry.id;
+        const title = document.createElement('span');
+        title.className = 'title';
+        title.textContent = entry.title;
+        const desc = document.createElement('span');
+        desc.className = 'description';
+        desc.textContent = entry.description;
+        btn.appendChild(title);
+        btn.appendChild(desc);
+        btn.addEventListener('click', () => {
+          launcherErrorEl.textContent = '';
+          loadRegisteredGame(entry.id);
+        });
+        launcherGamesEl.appendChild(btn);
+      }
+    }
 
+    async function ensureManifest() {
+      if (manifestCache) return manifestCache;
+      try {
+        manifestCache = await loadManifest();
+      } catch (err) {
+        console.error('Failed to load manifest:', err);
+        manifestCache = [];
+      }
+      return manifestCache;
+    }
+
+    async function showLauncherView() {
+      showLauncher();
+      launcherErrorEl.textContent = '';
+      const entries = await ensureManifest();
+      renderManifestList(entries);
+    }
+
+    async function fetchGameYaml(id) {
+      const candidates = getCandidatePaths(id);
+      let lastErr = null;
+      let lastPath = null;
+      for (const path of candidates) {
+        lastPath = path;
+        try {
+          const res = await fetch(path);
+          if (res.ok) {
+            return await res.text();
+          }
+          lastErr = new Error(`fetch failed: ${res.status}`);
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      const detail = lastErr
+        ? `${lastErr.message} (last attempted: ${lastPath})`
+        : `not found (last attempted: ${lastPath})`;
+      throw new Error(detail);
+    }
+
+    function startSession(yamlText) {
+      teardownSession();
       const definition = loadFromString(yamlText);
-      const session = createSession(definition);
-      const renderer = new CanvasRenderer(canvasEl, definition.rendering);
+      session = createSession(definition);
+      renderer = new CanvasRenderer(canvasEl, definition.rendering);
 
       function redraw() {
+        if (!session) return;
         const state = session.getState();
 
         if (state.terminal) {
@@ -226,15 +404,96 @@
         keyHintEl.textContent = hint ? drawKeyHint(hint) : '? help  ·  CTRL+c quit';
       }
 
-      document.addEventListener('keydown', (event) => {
+      keyHandler = (event) => {
+        if (!session) return;
         const key = domKeyToNamed(event);
         if (key == null) return;
         event.preventDefault();
         session.handleKey(key);
         redraw();
-      });
+      };
+      document.addEventListener('keydown', keyHandler);
 
+      showGame();
       redraw();
+    }
+
+    function teardownSession() {
+      if (keyHandler) {
+        document.removeEventListener('keydown', keyHandler);
+        keyHandler = null;
+      }
+      try {
+        if (renderer) renderer.clear();
+      } catch (_) { /* ignore */ }
+      statusEl.textContent = '';
+      messagesEl.textContent = '';
+      keyHintEl.textContent = '';
+      helpEl.classList.remove('visible');
+      session = null;
+      renderer = null;
+    }
+
+    async function loadRegisteredGame(id) {
+      try {
+        const yamlText = await fetchGameYaml(id);
+        startSession(yamlText);
+        history.pushState({}, '', `?game=${id}`);
+      } catch (err) {
+        launcherErrorEl.textContent = `Failed to load game "${id}": not found.`;
+        console.error(`Failed to load game "${id}":`, err);
+      }
+    }
+
+    function readFileAsText(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+        reader.readAsText(file);
+      });
+    }
+
+    launcherUploadEl.addEventListener('change', async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      launcherErrorEl.textContent = '';
+      const filename = file.name;
+      try {
+        const text = await readFileAsText(file);
+        startSession(text);
+      } catch (err) {
+        launcherErrorEl.textContent = `Failed to load uploaded file "${filename}": ${err.message}.`;
+        console.error(`Failed to load uploaded file "${filename}":`, err);
+        launcherUploadEl.value = '';
+      }
+    });
+
+    backToMenuEl.addEventListener('click', async () => {
+      try {
+        teardownSession();
+      } catch (err) {
+        console.error('Teardown error:', err);
+      }
+      history.pushState({}, '', window.location.pathname);
+      await showLauncherView();
+    });
+
+    async function boot() {
+      const params = new URLSearchParams(window.location.search);
+      const raw = params.get('game');
+      if (raw && isValidGameId(raw)) {
+        showGame();
+        try {
+          const yamlText = await fetchGameYaml(raw);
+          startSession(yamlText);
+        } catch (err) {
+          statusEl.textContent = `Failed to load game "${raw}": not found.`;
+          console.error(`Failed to load game "${raw}":`, err);
+        }
+        return;
+      }
+      await showLauncherView();
     }
 
     boot();

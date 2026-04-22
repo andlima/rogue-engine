@@ -1,0 +1,6 @@
+[
+  { "id": "silly",            "title": "Silly Game",       "description": "A five-level roguelike dungeon crawl. Fight monsters, collect gold, find equipment, and descend the final staircase to escape." },
+  { "id": "minimal",          "title": "Minimal Dungeon",  "description": "A minimal room to prove the engine pipeline works" },
+  { "id": "interact-demo",    "title": "Interact Demo",    "description": "Exercises interaction flows, tile hooks, and the UI panel DSL" },
+  { "id": "toy-hit-and-heal", "title": "Toy Hit and Heal", "description": "Two beings — a puncher and a healer — with three actions for e2e testing" }
+]

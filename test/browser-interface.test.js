@@ -10,6 +10,7 @@ import {
   resolveGameId,
   getCandidatePaths,
 } from '../src/browser/game-select.js';
+import { parseManifest, loadManifest } from '../src/browser/manifest.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -160,6 +161,69 @@ describe('browser-interface: game selection', () => {
       './games/minimal/game.yaml',
       './games/minimal.yaml',
     ]);
+  });
+});
+
+describe('browser-interface: launcher manifest', () => {
+  const validEntries = [
+    { id: 'silly', title: 'Silly Game', description: 'A dungeon crawl' },
+    { id: 'minimal', title: 'Minimal Dungeon', description: 'A minimal room' },
+    { id: 'interact-demo', title: 'Interact Demo', description: 'Exercises interactions' },
+    { id: 'toy-hit-and-heal', title: 'Toy Hit and Heal', description: 'Two beings' },
+  ];
+
+  it('parses a valid manifest with four entries and returns the array unchanged', () => {
+    const text = JSON.stringify(validEntries);
+    assert.deepEqual(parseManifest(text), validEntries);
+  });
+
+  it('accepts an empty array as a valid manifest', () => {
+    assert.deepEqual(parseManifest('[]'), []);
+  });
+
+  it('throws when the root is not an array', () => {
+    assert.throws(() => parseManifest('{}'), /must be a JSON array/);
+  });
+
+  it('throws with "Invalid manifest JSON:" when the JSON is malformed', () => {
+    assert.throws(() => parseManifest('[{'), /^Error: Invalid manifest JSON:/);
+  });
+
+  it('throws when an entry is missing the id field', () => {
+    const text = JSON.stringify([{ title: 'T', description: 'D' }]);
+    assert.throws(() => parseManifest(text), /entry 0 is missing id/);
+  });
+
+  it('throws when an entry has a non-string title (null)', () => {
+    const text = JSON.stringify([{ id: 'silly', title: null, description: 'D' }]);
+    assert.throws(() => parseManifest(text), /entry 0 is missing title/);
+  });
+
+  it('throws when an entry has a non-string title (number)', () => {
+    const text = JSON.stringify([{ id: 'silly', title: 42, description: 'D' }]);
+    assert.throws(() => parseManifest(text), /entry 0 is missing title/);
+  });
+
+  it('throws when an entry has an id that fails isValidGameId', () => {
+    const text = JSON.stringify([{ id: '../escape', title: 'T', description: 'D' }]);
+    assert.throws(() => parseManifest(text), /has invalid id/);
+  });
+});
+
+describe('browser-interface: launcher manifest fetch', () => {
+  it('resolves to the parsed array on ok response', async () => {
+    const entries = [{ id: 'silly', title: 'Silly', description: 'desc' }];
+    const fetchImpl = async () => ({
+      ok: true,
+      text: async () => JSON.stringify(entries),
+    });
+    const result = await loadManifest(fetchImpl);
+    assert.deepEqual(result, entries);
+  });
+
+  it('rejects with a "status 404" message when the response is not ok', async () => {
+    const fetchImpl = async () => ({ ok: false, status: 404 });
+    await assert.rejects(() => loadManifest(fetchImpl), /status 404/);
   });
 });
 
