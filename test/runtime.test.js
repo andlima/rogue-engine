@@ -4,11 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { loadFromString, loadFromFile } from '../src/config/loader.js';
 import { createState } from '../src/runtime/state.js';
+import { createSession } from '../src/runtime/session.js';
 import { dispatch } from '../src/runtime/dispatch.js';
 import { getVisibleTiles } from '../src/runtime/view.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLACEMENT_MAP_PATH = join(__dirname, 'fixtures', 'placement-map.yaml');
+const SILLY_GAME_PATH = join(__dirname, '..', 'games', 'silly', 'game.yaml');
 
 const GAME_YAML = `
 meta:
@@ -176,5 +178,35 @@ describe('getVisibleTiles', () => {
     const grid = getVisibleTiles(state, 5, 5);
     assert.equal(grid[0][0].ch, '#');
     assert.equal(grid[1][1].ch, '.');
+  });
+});
+
+describe('createSession seed override', () => {
+  it('two sessions from the same definition with different seeds produce different RNG-driven state', async () => {
+    const def = await loadFromFile(SILLY_GAME_PATH);
+    const a = createSession(def, { seed: 1 });
+    const b = createSession(def, { seed: 2 });
+    const sa = a.getState();
+    const sb = b.getState();
+
+    const mapsEqual = JSON.stringify(sa.map?.tiles) === JSON.stringify(sb.map?.tiles);
+    const entitiesA = sa.entities.map(e => `${e.id}@${e.x},${e.y}`).join('|');
+    const entitiesB = sb.entities.map(e => `${e.id}@${e.x},${e.y}`).join('|');
+    const entitiesEqual = entitiesA === entitiesB;
+
+    assert.ok(!mapsEqual || !entitiesEqual,
+      'expected map tiles or entity placements to differ between two seeds');
+  });
+
+  it('omitting opts is identical to passing no second argument (uses default seed)', async () => {
+    const def = await loadFromFile(SILLY_GAME_PATH);
+    const a = createSession(def);
+    const b = createSession(def, undefined);
+    const c = createSession(def, {});
+    const sa = a.getState();
+    const sb = b.getState();
+    const sc = c.getState();
+    assert.equal(JSON.stringify(sa.map?.tiles), JSON.stringify(sb.map?.tiles));
+    assert.equal(JSON.stringify(sa.map?.tiles), JSON.stringify(sc.map?.tiles));
   });
 });

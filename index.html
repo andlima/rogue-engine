@@ -77,6 +77,73 @@
       max-height: 90vh;
       overflow: auto;
     }
+    #game-over {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 20;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    #game-over.visible {
+      display: flex;
+    }
+    #game-over .panel {
+      background: #141414;
+      border: 1px solid #333;
+      padding: 24px 28px;
+      max-width: 90vw;
+      width: 360px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      text-align: center;
+    }
+    #game-over-heading {
+      font-size: 24px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    #game-over.win #game-over-heading {
+      color: #7fbf7f;
+    }
+    #game-over.lose #game-over-heading {
+      color: #cc6666;
+    }
+    #game-over-reason {
+      font-size: 14px;
+      color: #cccccc;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    #game-over .actions {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 4px;
+    }
+    #game-over .actions button {
+      flex: 1;
+      background: #1a1a1a;
+      color: #e6e6e6;
+      border: 1px solid #333;
+      padding: 8px 14px;
+      font-family: monospace;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #game-over .actions button:hover {
+      background: #242424;
+      border-color: #555;
+    }
+    #game-over-hint {
+      font-size: 12px;
+      color: #888888;
+    }
     #launcher {
       display: none;
       width: 100%;
@@ -177,6 +244,7 @@
     body.in-launcher #messages,
     body.in-launcher #key-hint,
     body.in-launcher #help,
+    body.in-launcher #game-over,
     body.in-launcher #back-to-menu {
       display: none;
     }
@@ -202,6 +270,17 @@
   <div id="messages"></div>
   <div id="key-hint"></div>
   <div id="help"><pre id="help-body"></pre></div>
+  <div id="game-over">
+    <div class="panel">
+      <div id="game-over-heading"></div>
+      <div id="game-over-reason"></div>
+      <div class="actions">
+        <button id="game-over-play-again" type="button">Play again</button>
+        <button id="game-over-menu" type="button">Menu</button>
+      </div>
+      <div id="game-over-hint">R play again  ·  ESC menu</div>
+    </div>
+  </div>
 
   <script type="module">
     // Entry point — imports from the same module graph as cli.js:
@@ -232,11 +311,18 @@
     const launcherUploadEl = document.getElementById('launcher-upload');
     const launcherErrorEl = document.getElementById('launcher-error');
     const backToMenuEl = document.getElementById('back-to-menu');
+    const gameOverEl = document.getElementById('game-over');
+    const gameOverHeadingEl = document.getElementById('game-over-heading');
+    const gameOverReasonEl = document.getElementById('game-over-reason');
+    const gameOverPlayAgainEl = document.getElementById('game-over-play-again');
+    const gameOverMenuEl = document.getElementById('game-over-menu');
 
     let session = null;
     let renderer = null;
     let keyHandler = null;
     let manifestCache = null;
+    let cachedDefinition = null;
+    let overlayOpen = false;
 
     function domKeyToNamed(event) {
       const k = event.key;
@@ -352,10 +438,15 @@
       throw new Error(detail);
     }
 
-    function startSession(yamlText) {
-      teardownSession();
+    function startSessionFromYaml(yamlText) {
       const definition = loadFromString(yamlText);
-      session = createSession(definition);
+      startSessionFromDefinition(definition);
+    }
+
+    function startSessionFromDefinition(definition, opts) {
+      teardownSession();
+      cachedDefinition = definition;
+      session = createSession(definition, opts);
       renderer = new CanvasRenderer(canvasEl, definition.rendering);
 
       function redraw() {
@@ -363,13 +454,10 @@
         const state = session.getState();
 
         if (state.terminal) {
-          renderer.clear();
-          statusEl.textContent = `Game over — ${state.terminal} (${state.terminalReason ?? 'unknown'}).`;
-          messagesEl.textContent = '';
-          keyHintEl.textContent = '';
-          helpEl.classList.remove('visible');
+          showGameOverOverlay(state);
           return;
         }
+        hideGameOverOverlay();
 
         if (session.getHelpOpen()) {
           helpBodyEl.textContent = drawHelpPanel(getHelpRows(state.definition, state));
@@ -408,6 +496,15 @@
         if (!session) return;
         const key = domKeyToNamed(event);
         if (key == null) return;
+        if (overlayOpen) {
+          event.preventDefault();
+          if (key === 'r' || key === 'R') {
+            playAgain();
+          } else if (key === 'ESC' || key === 'm' || key === 'M') {
+            returnToMenu();
+          }
+          return;
+        }
         event.preventDefault();
         session.handleKey(key);
         redraw();
@@ -416,6 +513,36 @@
 
       showGame();
       redraw();
+    }
+
+    function showGameOverOverlay(state) {
+      overlayOpen = true;
+      gameOverHeadingEl.textContent = state.terminal === 'win' ? 'Victory' : 'Defeated';
+      gameOverReasonEl.textContent = state.terminalReason ?? 'Game over.';
+      gameOverEl.classList.remove('win', 'lose');
+      gameOverEl.classList.add(state.terminal === 'win' ? 'win' : 'lose');
+      gameOverEl.classList.add('visible');
+      helpEl.classList.remove('visible');
+    }
+
+    function hideGameOverOverlay() {
+      overlayOpen = false;
+      gameOverEl.classList.remove('visible', 'win', 'lose');
+    }
+
+    function playAgain() {
+      if (!cachedDefinition) return;
+      startSessionFromDefinition(cachedDefinition, { seed: Date.now() });
+    }
+
+    async function returnToMenu() {
+      try {
+        teardownSession();
+      } catch (err) {
+        console.error('Teardown error:', err);
+      }
+      history.pushState({}, '', window.location.pathname);
+      await showLauncherView();
     }
 
     function teardownSession() {
@@ -430,6 +557,7 @@
       messagesEl.textContent = '';
       keyHintEl.textContent = '';
       helpEl.classList.remove('visible');
+      hideGameOverOverlay();
       session = null;
       renderer = null;
     }
@@ -437,7 +565,7 @@
     async function loadRegisteredGame(id) {
       try {
         const yamlText = await fetchGameYaml(id);
-        startSession(yamlText);
+        startSessionFromYaml(yamlText);
         history.pushState({}, '', `?game=${id}`);
       } catch (err) {
         launcherErrorEl.textContent = `Failed to load game "${id}": not found.`;
@@ -461,7 +589,7 @@
       const filename = file.name;
       try {
         const text = await readFileAsText(file);
-        startSession(text);
+        startSessionFromYaml(text);
       } catch (err) {
         launcherErrorEl.textContent = `Failed to load uploaded file "${filename}": ${err.message}.`;
         console.error(`Failed to load uploaded file "${filename}":`, err);
@@ -469,14 +597,16 @@
       }
     });
 
-    backToMenuEl.addEventListener('click', async () => {
-      try {
-        teardownSession();
-      } catch (err) {
-        console.error('Teardown error:', err);
-      }
-      history.pushState({}, '', window.location.pathname);
-      await showLauncherView();
+    backToMenuEl.addEventListener('click', () => {
+      returnToMenu();
+    });
+
+    gameOverPlayAgainEl.addEventListener('click', () => {
+      playAgain();
+    });
+
+    gameOverMenuEl.addEventListener('click', () => {
+      returnToMenu();
     });
 
     async function boot() {
@@ -486,7 +616,7 @@
         showGame();
         try {
           const yamlText = await fetchGameYaml(raw);
-          startSession(yamlText);
+          startSessionFromYaml(yamlText);
         } catch (err) {
           statusEl.textContent = `Failed to load game "${raw}": not found.`;
           console.error(`Failed to load game "${raw}":`, err);
