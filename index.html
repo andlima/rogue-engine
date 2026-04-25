@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1">
   <title>rogue-engine</title>
   <script type="importmap">
     {
@@ -30,6 +30,7 @@
       display: block;
       background: #0a0a0a;
       image-rendering: pixelated;
+      touch-action: none;
     }
     #status {
       font-size: 14px;
@@ -245,11 +246,48 @@
     body.in-launcher #key-hint,
     body.in-launcher #help,
     body.in-launcher #game-over,
-    body.in-launcher #back-to-menu {
+    body.in-launcher #back-to-menu,
+    body.in-launcher #action-bar {
       display: none;
     }
     body.in-launcher #launcher {
       display: flex;
+    }
+    #action-bar {
+      display: none;
+    }
+    @media (pointer: coarse) {
+      #action-bar {
+        display: flex;
+        flex-wrap: wrap;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: #141414;
+        border-top: 1px solid #333;
+        padding: 6px;
+        gap: 4px;
+        z-index: 4;
+      }
+      #action-bar button {
+        flex: 1 0 auto;
+        min-width: 64px;
+        background: #1a1a1a;
+        color: #e6e6e6;
+        border: 1px solid #333;
+        padding: 8px 12px;
+        font-family: monospace;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      #action-bar button:active {
+        background: #242424;
+        border-color: #555;
+      }
+      #back-to-menu {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -281,6 +319,7 @@
       <div id="game-over-hint">R play again  ·  ESC menu</div>
     </div>
   </div>
+  <div id="action-bar"></div>
 
   <script type="module">
     // Entry point — imports from the same module graph as cli.js:
@@ -296,6 +335,14 @@
     import { getHelpRows, getKeyHint } from './src/input/help.js';
     import { isValidGameId, getCandidatePaths } from './src/browser/game-select.js';
     import { loadManifest } from './src/browser/manifest.js';
+    import {
+      computeTouchDir,
+      shouldStopRepeating,
+      deriveActionBarItems,
+      HOLD_INITIAL_DELAY,
+      HOLD_REPEAT_INTERVAL,
+      TAP_DRAG_THRESHOLD,
+    } from './src/browser/touch-controls.js';
 
     const VIEW_W = 21;
     const VIEW_H = 15;
@@ -316,6 +363,9 @@
     const gameOverReasonEl = document.getElementById('game-over-reason');
     const gameOverPlayAgainEl = document.getElementById('game-over-play-again');
     const gameOverMenuEl = document.getElementById('game-over-menu');
+    const actionBarEl = document.getElementById('action-bar');
+
+    const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
 
     let session = null;
     let renderer = null;
@@ -323,6 +373,27 @@
     let manifestCache = null;
     let cachedDefinition = null;
     let overlayOpen = false;
+    let currentRedraw = null;
+
+    let touchActive = false;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartDir = null;
+    let touchHoldDelayTimer = null;
+    let touchHoldRepeatTimer = null;
+    let touchHoldActive = false;
+
+    function stopTouchHoldRepeat() {
+      if (touchHoldDelayTimer != null) {
+        clearTimeout(touchHoldDelayTimer);
+        touchHoldDelayTimer = null;
+      }
+      if (touchHoldRepeatTimer != null) {
+        clearInterval(touchHoldRepeatTimer);
+        touchHoldRepeatTimer = null;
+      }
+      touchHoldActive = false;
+    }
 
     function domKeyToNamed(event) {
       const k = event.key;
@@ -359,9 +430,73 @@
       return mods.length ? `${mods.join('+')}+${base}` : base;
     }
 
+    function dispatchKeyAndRedraw(key) {
+      if (!session) return;
+      session.handleKey(key);
+      if (currentRedraw) currentRedraw();
+    }
+
+    function makeBarButton(label, onClick) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.addEventListener('click', onClick);
+      return btn;
+    }
+
+    function renderActionBar() {
+      if (!isCoarsePointer) return;
+      if (!session || !cachedDefinition) {
+        actionBarEl.innerHTML = '';
+        updateBodyPadding();
+        return;
+      }
+      const state = session.getState();
+      if (state.terminal != null) {
+        // Game-over overlay covers the bar; leave previous content untouched.
+        return;
+      }
+
+      actionBarEl.innerHTML = '';
+
+      if (state.flowState != null && session.getReticle() != null) {
+        actionBarEl.appendChild(makeBarButton('✓ Confirm', () => dispatchKeyAndRedraw('ENTER')));
+        actionBarEl.appendChild(makeBarButton('✗ Cancel', () => dispatchKeyAndRedraw('ESC')));
+        updateBodyPadding();
+        return;
+      }
+
+      if (state.flowState != null) {
+        actionBarEl.appendChild(makeBarButton('✗ Cancel', () => dispatchKeyAndRedraw('ESC')));
+        updateBodyPadding();
+        return;
+      }
+
+      const helpRows = getHelpRows(state.definition, state);
+      const items = deriveActionBarItems(helpRows);
+      for (const item of items) {
+        actionBarEl.appendChild(makeBarButton(item.label, () => dispatchKeyAndRedraw(item.key)));
+      }
+
+      actionBarEl.appendChild(makeBarButton('?', () => dispatchKeyAndRedraw('?')));
+      actionBarEl.appendChild(makeBarButton('Menu', () => returnToMenu()));
+
+      updateBodyPadding();
+    }
+
+    function updateBodyPadding() {
+      if (!isCoarsePointer) {
+        document.body.style.paddingBottom = '';
+        return;
+      }
+      const h = actionBarEl ? actionBarEl.offsetHeight : 0;
+      document.body.style.paddingBottom = h ? `${h}px` : '';
+    }
+
     function showLauncher() {
       document.body.classList.remove('in-game');
       document.body.classList.add('in-launcher');
+      updateBodyPadding();
     }
 
     function showGame() {
@@ -460,9 +595,11 @@
             renderer.drawGrid(grid, state);
           }
           showGameOverOverlay(state);
+          stopTouchHoldRepeat();
           return;
         }
         hideGameOverOverlay();
+        renderActionBar();
 
         if (session.getHelpOpen()) {
           helpBodyEl.textContent = drawHelpPanel(getHelpRows(state.definition, state));
@@ -496,6 +633,8 @@
         const hint = getKeyHint(state.definition, state, session.getIntrinsicHints());
         keyHintEl.textContent = hint ? drawKeyHint(hint) : '? help  ·  CTRL+c quit';
       }
+
+      currentRedraw = redraw;
 
       keyHandler = (event) => {
         if (!session) return;
@@ -555,6 +694,8 @@
         document.removeEventListener('keydown', keyHandler);
         keyHandler = null;
       }
+      stopTouchHoldRepeat();
+      touchActive = false;
       try {
         if (renderer) renderer.clear();
       } catch (_) { /* ignore */ }
@@ -565,6 +706,9 @@
       hideGameOverOverlay();
       session = null;
       renderer = null;
+      currentRedraw = null;
+      if (actionBarEl) actionBarEl.innerHTML = '';
+      updateBodyPadding();
     }
 
     async function loadRegisteredGame(id) {
@@ -605,6 +749,124 @@
     backToMenuEl.addEventListener('click', () => {
       returnToMenu();
     });
+
+    if (isCoarsePointer) {
+      canvasEl.addEventListener('touchstart', (event) => {
+        if (!session) return;
+        const state = session.getState();
+        if (state.terminal != null) return;
+        if (session.getHelpOpen()) return;
+        if (session.getQuitPending()) return;
+
+        // Two simultaneous touches must not start two repeat timers.
+        stopTouchHoldRepeat();
+
+        if (!event.touches || event.touches.length === 0) return;
+        const touch = event.touches[0];
+        const rect = canvasEl.getBoundingClientRect();
+        touchActive = true;
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchStartDir = computeTouchDir(touch.clientX, touch.clientY, rect);
+
+        // Hold-to-repeat is disabled during reticle/flow mode.
+        if (state.flowState != null) {
+          event.preventDefault();
+          return;
+        }
+
+        touchHoldDelayTimer = setTimeout(() => {
+          touchHoldDelayTimer = null;
+          touchHoldActive = true;
+          fireHoldStep();
+          if (touchHoldActive) {
+            touchHoldRepeatTimer = setInterval(fireHoldStep, HOLD_REPEAT_INTERVAL);
+          }
+        }, HOLD_INITIAL_DELAY);
+
+        event.preventDefault();
+      }, { passive: false });
+
+      canvasEl.addEventListener('touchmove', (event) => {
+        // Suppress default scroll/zoom during a touch — direction is
+        // locked to the initial touch position regardless of drag.
+        if (touchActive) event.preventDefault();
+      }, { passive: false });
+
+      canvasEl.addEventListener('touchend', (event) => {
+        if (!touchActive) return;
+
+        const wasHoldActive = touchHoldActive;
+        stopTouchHoldRepeat();
+        touchActive = false;
+
+        if (wasHoldActive) {
+          event.preventDefault();
+          return;
+        }
+
+        if (!session) return;
+        const state = session.getState();
+        if (state.terminal != null) return;
+        if (session.getHelpOpen()) return;
+        if (session.getQuitPending()) return;
+
+        let endX = touchStartX;
+        let endY = touchStartY;
+        if (event.changedTouches && event.changedTouches.length > 0) {
+          endX = event.changedTouches[0].clientX;
+          endY = event.changedTouches[0].clientY;
+        }
+        const dx = Math.abs(endX - touchStartX);
+        const dy = Math.abs(endY - touchStartY);
+        if (dx > TAP_DRAG_THRESHOLD || dy > TAP_DRAG_THRESHOLD) {
+          event.preventDefault();
+          return;
+        }
+
+        if (touchStartDir) {
+          dispatchKeyAndRedraw(touchStartDir);
+        }
+        event.preventDefault();
+      }, { passive: false });
+
+      canvasEl.addEventListener('touchcancel', () => {
+        stopTouchHoldRepeat();
+        touchActive = false;
+      });
+
+      // Tap-to-dismiss the help overlay — without this, mobile users get
+      // stuck since the overlay covers both the canvas and the '?' button.
+      helpEl.addEventListener('click', (event) => {
+        if (!session || !session.getHelpOpen()) return;
+        event.preventDefault();
+        dispatchKeyAndRedraw('?');
+      });
+
+      window.addEventListener('resize', updateBodyPadding);
+    }
+
+    function fireHoldStep() {
+      if (!session || !touchStartDir) {
+        stopTouchHoldRepeat();
+        return;
+      }
+      const prevState = session.getState();
+      if (prevState.terminal != null
+          || prevState.flowState != null
+          || session.getHelpOpen()
+          || session.getQuitPending()) {
+        stopTouchHoldRepeat();
+        if (currentRedraw) currentRedraw();
+        return;
+      }
+      session.handleKey(touchStartDir);
+      const nextState = session.getState();
+      if (currentRedraw) currentRedraw();
+      if (shouldStopRepeating(prevState, nextState, touchStartDir)) {
+        stopTouchHoldRepeat();
+      }
+    }
 
     gameOverPlayAgainEl.addEventListener('click', () => {
       playAgain();
