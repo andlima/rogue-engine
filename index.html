@@ -454,6 +454,11 @@
         const state = session.getState();
 
         if (state.terminal) {
+          if (state.map) {
+            const fovMap = computeFOV(state.map, state.player.x, state.player.y);
+            const grid = getVisibleTiles(state, VIEW_W, VIEW_H, fovMap);
+            renderer.drawGrid(grid, state);
+          }
           showGameOverOverlay(state);
           return;
         }
