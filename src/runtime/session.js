@@ -7,7 +7,8 @@
  * the surface only owns its own redraw.
  *
  * Contract:
- *   const session = createSession(definition);
+ *   const session = createSession(definition, opts?);
+ *   //   opts.seed?: number   - override the default RNG seed
  *   session.handleKey('UP');          // mutates internal state
  *   session.getState();               // current GameState
  *   session.getHelpOpen();            // boolean
@@ -45,8 +46,8 @@ function isLowerAlpha(key) {
   return c >= 97 && c <= 122;
 }
 
-export function createSession(definition) {
-  let state = createState(definition);
+export function createSession(definition, opts) {
+  let state = createState(definition, opts?.seed);
   let helpOpen = false;
   let quitPending = false;
   let reticle = null;

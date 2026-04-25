@@ -11,9 +11,13 @@ import {
   getCandidatePaths,
 } from '../src/browser/game-select.js';
 import { parseManifest, loadManifest } from '../src/browser/manifest.js';
+import { loadFromFile } from '../src/config/loader.js';
+import { createSession } from '../src/runtime/session.js';
+import { createState } from '../src/runtime/state.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
+const SILLY_GAME_PATH = join(ROOT, 'games', 'silly', 'game.yaml');
 
 function makeRecordingCanvas() {
   const calls = [];
@@ -239,5 +243,38 @@ describe('browser-interface: index.html structure', () => {
     assert.match(html, /<script type="module">/, 'module script block present');
     assert.ok(html.includes('./src/config/loader.js'), 'references loader.js');
     assert.ok(html.includes('./src/runtime/state.js'), 'references state.js');
+  });
+});
+
+describe('browser-interface: createSession opts.seed forwarding', () => {
+  it('forwards opts.seed to createState (matches direct createState output)', async () => {
+    const def = await loadFromFile(SILLY_GAME_PATH);
+    const SEED = 1234567;
+    const sessionState = createSession(def, { seed: SEED }).getState();
+    const directState = createState(def, SEED);
+    assert.deepEqual(sessionState.map?.tiles, directState.map?.tiles,
+      'session map tiles must match createState(def, seed) directly');
+    const sessionEntities = sessionState.entities.map(e => `${e.id}@${e.x},${e.y}`);
+    const directEntities = directState.entities.map(e => `${e.id}@${e.x},${e.y}`);
+    assert.deepEqual(sessionEntities, directEntities,
+      'session entity placements must match createState(def, seed) directly');
+  });
+
+  it('different seeds via opts produce different sessions', async () => {
+    const def = await loadFromFile(SILLY_GAME_PATH);
+    const a = createSession(def, { seed: 1 }).getState();
+    const b = createSession(def, { seed: 2 }).getState();
+    const mapsEqual = JSON.stringify(a.map?.tiles) === JSON.stringify(b.map?.tiles);
+    const entitiesA = a.entities.map(e => `${e.id}@${e.x},${e.y}`).join('|');
+    const entitiesB = b.entities.map(e => `${e.id}@${e.x},${e.y}`).join('|');
+    assert.ok(!mapsEqual || entitiesA !== entitiesB,
+      'expected differences between seed=1 and seed=2 sessions');
+  });
+
+  it('createSession(def) (no opts) is unchanged behavior', async () => {
+    const def = await loadFromFile(SILLY_GAME_PATH);
+    const a = createSession(def).getState();
+    const b = createSession(def).getState();
+    assert.deepEqual(a.map?.tiles, b.map?.tiles, 'no-arg form is deterministic');
   });
 });
