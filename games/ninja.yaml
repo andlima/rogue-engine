@@ -1,0 +1,737 @@
+# ─────────────────────────────────────────────────────────────
+# Shadow of the Moonless Castle — a ninja-themed rogue-engine game
+# ─────────────────────────────────────────────────────────────
+# A single-night infiltration: slip past patrol dogs and samurai
+# spirits, raid the daimyo's vault, then face the Oni in his cistern.
+
+meta:
+  id: moonless-castle
+  name: Shadow of the Moonless Castle
+  version: "1.0.0"
+  description: >
+    The moon is dead and the castle bell silent. Slip through the
+    bamboo, cleave the cursed garrison, claim the iron key, and
+    plunder the daimyo's hoard before the Oni stirs in his cistern.
+  player_archetype: shinobi
+
+# ── Measurements ───────────────────────────────────────────────
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: max_hp
+    initial: 25
+  - id: max_hp
+    label: Max HP
+    min: 1
+    initial: 25
+  - id: attack
+    label: ATK
+    min: 0
+    initial: 4
+  - id: defense
+    label: DEF
+    min: 0
+    initial: 1
+  - id: ryo
+    label: Ryo
+    min: 0
+    initial: 0
+  - id: chi
+    label: Chi
+    min: 0
+    max: 10
+    initial: 4
+  - id: focus
+    label: Focus
+    min: 0
+    max: 10
+    initial: 5
+  - id: awareness
+    label: Awareness
+    min: 0
+    initial: 0
+
+# ── Beings ─────────────────────────────────────────────────────
+beings:
+  - id: shinobi
+    label: Shinobi
+    glyph: "@"
+    emoji: "🥷"
+    color: white
+    measurements:
+      hp: 25
+      max_hp: 25
+      attack: 4
+      defense: 1
+      chi: 4
+    tags: [player]
+
+  - id: rat
+    label: Sewer Rat
+    glyph: "r"
+    emoji: "🐀"
+    color: gray
+    measurements:
+      hp: 4
+      attack: 2
+      defense: 1
+      awareness: 3
+    tags: [monster, vermin]
+
+  - id: crow
+    label: Cursed Crow
+    glyph: "b"
+    emoji: "🐦"
+    color: bright_black
+    measurements:
+      hp: 3
+      attack: 1
+      defense: 0
+      awareness: 5
+    tags: [monster, bamboo]
+
+  - id: yurei
+    label: Yurei
+    glyph: "y"
+    emoji: "👻"
+    color: cyan
+    measurements:
+      hp: 8
+      attack: 4
+      defense: 1
+      awareness: 4
+    tags: [monster, undead]
+
+  - id: ronin
+    label: Ronin Wraith
+    glyph: "R"
+    emoji: "💀"
+    color: white
+    measurements:
+      hp: 6
+      attack: 3
+      defense: 2
+      awareness: 4
+    tags: [monster, undead]
+
+  - id: moat_serpent
+    label: Moat Serpent
+    glyph: "N"
+    emoji: "🐍"
+    color: blue
+    measurements:
+      hp: 12
+      attack: 5
+      defense: 2
+      awareness: 6
+    tags: [monster, water]
+
+  - id: oni
+    label: The Oni
+    glyph: "O"
+    emoji: "👹"
+    color: magenta
+    measurements:
+      hp: 30
+      attack: 7
+      defense: 3
+      awareness: 8
+    tags: [monster, boss, water]
+
+# ── Items ──────────────────────────────────────────────────────
+items:
+  - id: katana
+    label: Katana
+    glyph: "/"
+    emoji: "⚔️"
+    color: cyan
+    kind: equipment
+    properties:
+      slot: weapon
+      stat: attack
+      bonus: 3
+    tags: [equipment, weapon]
+
+  - id: yumi_bow
+    label: Yumi Bow
+    glyph: "{"
+    emoji: "🏹"
+    color: bright_cyan
+    kind: equipment
+    properties:
+      slot: weapon
+      stat: attack
+      bonus: 5
+    tags: [equipment, weapon, ranged]
+
+  - id: hood
+    label: Shinobi Hood
+    glyph: "^"
+    emoji: "🎭"
+    color: gray
+    kind: equipment
+    properties:
+      slot: helmet
+      stat: defense
+      bonus: 1
+    tags: [equipment, armor]
+
+  - id: bracer
+    label: Iron Bracer
+    glyph: ")"
+    emoji: "🛡"
+    color: gray
+    kind: equipment
+    properties:
+      slot: shield
+      stat: defense
+      bonus: 2
+    tags: [equipment, armor]
+
+  - id: sake
+    label: Flask o' Sake
+    glyph: "!"
+    emoji: "🍶"
+    color: yellow
+    kind: consumable
+    tags: [consumable, drink]
+
+  - id: onigiri
+    label: Onigiri
+    glyph: "%"
+    emoji: "🍙"
+    color: bright_yellow
+    kind: consumable
+    tags: [consumable, food]
+
+  - id: ryo_coin
+    label: Ryo
+    glyph: "$"
+    emoji: "🪙"
+    color: yellow
+    kind: currency
+    tags: [currency]
+
+  - id: chest
+    label: Lacquer Chest
+    glyph: "="
+    emoji: "💰"
+    color: bright_yellow
+    kind: container
+    tags: [treasure]
+
+  - id: iron_key
+    label: Iron Key
+    glyph: "k"
+    emoji: "🗝"
+    color: yellow
+    kind: consumable
+    tags: [key]
+
+  - id: bronze_key
+    label: Bronze Key
+    glyph: "B"
+    emoji: "🔑"
+    color: bright_yellow
+    kind: consumable
+    tags: [key]
+
+  - id: lantern
+    label: Paper Lantern
+    glyph: "?"
+    emoji: "🏮"
+    color: bright_red
+    kind: consumable
+    tags: [tool]
+
+# ── Map ────────────────────────────────────────────────────────
+# A moonless castle complex laid out in five zones, south to north,
+# walled by an outer moat. Two locked gates gate progression:
+#   • Forest approach (rows 30-35): player spawn inside a ruined
+#     dojo (stone ribs `#`), scuttling rats, a koi pond inlet with
+#     two moat serpents (`N`) prowling the south moat.
+#   • Bamboo grove transition (rows 27-29): switchback paths
+#     through dense bamboo (`T` blocks movement), a stray rat or
+#     two, an occasional crow.
+#   • Outer bailey (rows 19-26): outer courtyard north (rows 19-20)
+#     with a jizo shrine (`[`), then three sub-areas at rows 21-26:
+#       - Stables (W, cols 5-22): sake, onigiri, gold, a chest.
+#       - Open training yard (center, cols 27-44): rats and a
+#         training dummy (chest).
+#       - Watchtower II (E, cols 49-62): the bronze key (`B`),
+#         a yurei guard, a chest, a ronin, and gold.
+#   • Inner bailey (rows 11-16): three buildings flank a central
+#     path, all entered via center openings:
+#       - Dojo (W, cols 8-22): a brazier (`&`), the katana,
+#         a crow inside, and a practice chest.
+#       - Kitchen / barracks (center, cols 27-43): sake, onigiri,
+#         gold, a wandering yurei.
+#       - Armory (E, cols 48-62): the bracer, gold piles,
+#         a chest, and a ronin guard.
+#     Inner courtyards bracket the bailey at rows 8-10 (with a
+#     brazier and onigiri) and at row 17 (with another brazier).
+#   • Keep (rows 1-7): the daimyo's citadel.
+#       - Western donjon (cols 4-35): a flooded cistern
+#         (cols 4-13, water `~` and dry ledges hosting the Oni)
+#         and the vault chamber (cols 15-34) holding the hood,
+#         bracer, yumi bow, sake, gold piles, and chests.
+#       - Eastern keep watchtower (cols 40-58): a jizo shrine,
+#         a yurei guard, a rubble-strewn floor, the iron key,
+#         a ronin, gold, and a chest.
+#       - South wall has the iron-locked vault door `D` and two
+#         broken gaps into the keep watchtower from the courtyard.
+# Gates: the bronze gate `G` at row 18 separates outer ↔ inner
+# bailey (opens with the bronze key); the iron door `D` at row 7
+# admits the player to the vault (opens with the iron key).
+# Moat (~) is impassable; gravel/floor (.) walkable; bamboo (T)
+# blocks; walls (#) block.
+map:
+  width: 70
+  height: 37
+  tiles:
+    - "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    - "~~~#################################~~~~###################~~~~~~~~~~~"
+    - "~~~#~~~..~~~~~#....^...............#~~~~#..[...........y..#~~~~~~~~~~~"
+    - "~~~#~..~....~~#.....)......$...=...#~~~~#.................#~~~~~~~~~~~"
+    - "~~~#~~~O.~~~~~#....$........$......#~~~~#.....#......=....#~~~~~~~~~~~"
+    - "~~~#~~........#......{......=......#~~~~#...k.........R...#~~~~~~~~~~~"
+    - "~~~#..........#........$....!......#~~~~#....#....$.......#~~~~~~~~~~~"
+    - "~~~################D################~~~~#####.######.######~~~~~~~~~~~"
+    - "~~~....TTT.....TT......T....TT.....TT....TTT......T..........T.....~~~"
+    - "~~~....T...T....T..&%......T......T......T................T...T....~~~"
+    - "~~~..T...T........TT.........T.....T..........TT......T............~~~"
+    - "~~~.....#######.#######....########.########....#######.#######....~~~"
+    - "~~~..r..#.....r.......#....#.......!.......#....#......)......#....~~~"
+    - "~~~.....#....&....../.#....#......y........#....#.....=.......#.b..~~~"
+    - "~~~....=#......b......#....#......$........#....#......$......#....~~~"
+    - "~~~.....#....=........#....#.......%.......#....#.......$..R..#....~~~"
+    - "~~~.....#######.#######....########.########....#######.#######....~~~"
+    - "~~~....TT.......T..........&......T..........TT........T.......T...~~~"
+    - "~~~###############################G################################~~~"
+    - "~~~...T......TT.......T.......TT.......T..........TT......T....T...~~~"
+    - "~~~..T....TT........T.[..........T...........T..........T....TT....~~~"
+    - "~~~..#######.##########..........................######.#######....~~~"
+    - "~~~..#......!.........#..........r...............#....B.y.....#....~~~"
+    - "~~~..#.......%........#..............=...........#.....=......#....~~~"
+    - "~~~..#.........$......#........r.................#.......R....#....~~~"
+    - "~~~..#....=...........#..........................#.....$......#....~~~"
+    - "~~~..#######.##########..........................######.#######....~~~"
+    - "~~~..TT......TT........TT.....r..........TT........TT........T.....~~~"
+    - "~~~..T...TT.......T..........T....TT......TT......T...TT......T..T.~~~"
+    - "~~~....TT......TT.......b...TT........T............TT.....r......T.~~~"
+    - "~~~...TT.....TT.................TT......TT....??....TT.....TT....TT~~~"
+    - "~~~..##..##.......r........................r........%.....TT.T...T.~~~"
+    - "~~~.#....!.#.....................$............r.................TT.~~~"
+    - "~~~.#...=..#..@.r.................$..........TT.....r..........TTT.~~~"
+    - "~~~.#.$....#........r.......TT........r.....~~....r........T....TT.~~~"
+    - "~~~..##..##.................r.....~N.....~~~..N..........TT....T...~~~"
+    - "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+
+# ── Tile definitions ───────────────────────────────────────────
+tiles:
+  "~":
+    kind: water
+    blocks_move: true
+  "T":
+    kind: bamboo
+    blocks_move: true
+  "D":
+    kind: door_locked
+    glyph: "+"
+    color: yellow
+    on_interact:
+      - type: message
+        when: 'not has_item("iron_key")'
+        text: "The vault door is barred. Ye need an iron key."
+      - type: transform_tile
+        when: 'has_item("iron_key")'
+        char: "'"
+      - type: message
+        when: 'has_item("iron_key")'
+        text: "The iron key turns. The vault grates open."
+      - type: consume
+        when: 'has_item("iron_key")'
+        item: iron_key
+  "+":
+    kind: door_locked
+    color: yellow
+  "G":
+    kind: door_locked
+    glyph: "+"
+    color: bright_red
+    on_interact:
+      - type: message
+        when: 'not has_item("bronze_key")'
+        text: "The inner gate is barred. Ye need a bronze key."
+      - type: transform_tile
+        when: 'has_item("bronze_key")'
+        char: "'"
+      - type: message
+        when: 'has_item("bronze_key")'
+        text: "The bronze lock yields. The gate creaks open."
+      - type: consume
+        when: 'has_item("bronze_key")'
+        item: bronze_key
+  "'":
+    kind: door_open
+    glyph: "'"
+    color: brown
+  "=":
+    kind: container
+    glyph: "="
+    color: bright_yellow
+  "&":
+    kind: brazier
+    glyph: "&"
+    color: bright_red
+    on_interact:
+      - type: apply
+        target: actor
+        measurement: focus
+        delta: 2
+      - type: message
+        text: "You warm yer hands at the brazier. Mind sharpens!"
+  "[":
+    kind: shrine
+    glyph: "["
+    color: bright_magenta
+    on_interact:
+      - type: message
+        when: 'actor.ryo < 5'
+        text: "The jizo idol demands an offering of 5 ryo."
+      - type: apply
+        when: 'actor.ryo >= 5'
+        target: actor
+        measurement: ryo
+        delta: -5
+      - type: apply
+        when: 'actor.ryo >= 5'
+        target: actor
+        measurement: max_hp
+        delta: 3
+      - type: set
+        when: 'actor.ryo >= 5'
+        target: actor
+        measurement: hp
+        value: "actor.max_hp"
+      - type: message
+        when: 'actor.ryo >= 5'
+        text: "The jizo accepts your coin. +3 max HP, fully mended."
+
+# ── Actions ────────────────────────────────────────────────────
+actions:
+  player:
+    # Generic move — bump-attack, walk, auto-pickup.
+    - id: move
+      trigger: move
+      requires:
+        - "walkable(actor.x + input.dx, actor.y + input.dy)"
+      effects:
+        # Bump-attack
+        - type: find_target
+          x: "actor.x + input.dx"
+          y: "actor.y + input.dy"
+          kind: being
+        - type: apply
+          when: "target_found"
+          target: target
+          measurement: hp
+          delta: "-(max(1, actor.attack + actor.equip_attack - target.defense + random(-1, 1)))"
+        - type: message
+          when: "target_found"
+          text: "Ye strike the {target.label} for {damage} damage!"
+        - type: message
+          when: "target_found and target.hp <= 0"
+          text: "The {target.label} crumples to the gravel."
+        - type: apply
+          when: "target_found and target.hp <= 0"
+          target: actor
+          measurement: ryo
+          delta: "random(1, 3)"
+        - type: remove
+          when: "target_found and target.hp <= 0"
+
+        # Walk (no monster at target)
+        - type: move
+          when: "not target_found"
+          dir: "input.dir"
+
+        # Auto-pickup at new tile
+        - type: find_target
+          when: "not target_found and result.moved"
+          x: "actor.x"
+          y: "actor.y"
+          kind: item
+        # Ryo → currency
+        - type: apply
+          when: "target_found and target.id == 'ryo_coin'"
+          target: actor
+          measurement: ryo
+          delta: 5
+        - type: message
+          when: "target_found and target.id == 'ryo_coin'"
+          text: "Ye pocket 5 ryo. The shogun won't miss it."
+        - type: remove
+          when: "target_found and target.id == 'ryo_coin'"
+        # Sake → inventory
+        - type: message
+          when: "target_found and target.id == 'sake'"
+          text: "Ye stash a flask o' sake."
+        - type: pickup
+          when: "target_found and target.id == 'sake'"
+        # Onigiri → inventory
+        - type: message
+          when: "target_found and target.id == 'onigiri'"
+          text: "Ye pocket an onigiri."
+        - type: pickup
+          when: "target_found and target.id == 'onigiri'"
+        # Iron key → inventory
+        - type: message
+          when: "target_found and target.id == 'iron_key'"
+          text: "An iron key! It is cold to the touch."
+        - type: pickup
+          when: "target_found and target.id == 'iron_key'"
+        # Bronze key → inventory
+        - type: message
+          when: "target_found and target.id == 'bronze_key'"
+          text: "A bronze key! It rattles in yer palm."
+        - type: pickup
+          when: "target_found and target.id == 'bronze_key'"
+        # Equipment → auto-equip if upgrade
+        - type: message
+          when: "target_found and target.itemKind == 'equipment' and target.properties.bonus > slot_bonus(target.properties.slot)"
+          text: "Ye don a {target.label} (+{target.properties.bonus} {target.properties.stat})."
+        - type: equip
+          when: "target_found and target.itemKind == 'equipment' and target.properties.bonus > slot_bonus(target.properties.slot)"
+          from_ground: true
+
+    # Drink sake: heal HP and lift focus
+    - id: drink_sake
+      trigger: drink_sake
+      label: "Drink sake"
+      summary: "Pull from a flask o' sake (heals HP, lifts focus)"
+      requires:
+        - "has_item('sake')"
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: 8
+        - type: apply
+          target: actor
+          measurement: focus
+          delta: 1
+        - type: message
+          text: "Ye sip the sake. {delta} HP restored — kanpai!"
+        - type: consume
+          target: actor
+          item: sake
+
+    # Eat onigiri: small heal
+    - id: eat_onigiri
+      trigger: eat_onigiri
+      label: "Eat onigiri"
+      summary: "Bite into onigiri (small HP recover)"
+      requires:
+        - "actor.hp < actor.max_hp"
+        - "has_item('onigiri')"
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: 4
+        - type: message
+          text: "Ye chew the rice ball. +{delta} HP."
+        - type: consume
+          target: actor
+          item: onigiri
+
+    # Loose arrow (ranged): consumes chi, requires bow equipped
+    - id: loose_arrow
+      trigger: loose_arrow
+      label: "Loose arrow"
+      summary: "Draw and loose an arrow (costs 1 chi)"
+      requires:
+        - "actor.chi >= 1"
+        - "actor.equip_attack >= 5"
+      flow:
+        - type: pick_tile
+          range: 6
+          filter: "line_of_sight($origin, tile)"
+          bind: target_tile
+      effects:
+        - type: apply
+          target: actor
+          measurement: chi
+          delta: -1
+        - type: apply_area
+          origin: "$target_tile"
+          radius: 0
+          measurement: hp
+          delta: "-(8 + random(-1, 2))"
+          exclude_actor: true
+        - type: message
+          text: "Twang! The arrow hisses through the dark."
+
+    # Open the lacquer chest tile (=)
+    - id: open_chest
+      trigger: open_chest
+      label: "Open chest"
+      summary: "Pry open a lacquer chest at yer feet"
+      requires:
+        - "tile_at(actor.x, actor.y) == '='"
+      effects:
+        - type: apply
+          target: actor
+          measurement: ryo
+          delta: "random(20, 50)"
+        - type: message
+          text: "The chest spills open — {delta} ryo!"
+        - type: transform_tile
+          char: "."
+
+    # Wait — pass turn
+    - id: wait
+      trigger: wait
+      label: "Wait"
+      summary: "Hold the shadows a turn"
+      effects:
+        - type: message
+          text: "Ye breathe slow. The bamboo whispers."
+
+  # ── Monster AI ─────────────────────────────────────────────
+  ai:
+    # Adjacent → attack
+    - id: ai_attack
+      condition: "manhattan(actor.x, actor.y, target.x, target.y) <= 1"
+      effects:
+        - type: apply
+          target: target
+          measurement: hp
+          delta: "-(max(1, actor.attack - (target.defense + target.equip_defense) + random(-1, 1)))"
+        - type: message
+          text: "The {actor.label} strikes ye for {damage} damage!"
+
+    # In sight → chase
+    - id: ai_chase
+      condition: "manhattan(actor.x, actor.y, target.x, target.y) <= actor.awareness and los(actor.x, actor.y, target.x, target.y)"
+      effects:
+        - type: move
+          dir: "dir_toward(actor.x, actor.y, target.x, target.y)"
+
+    # Idle fallback
+    - id: ai_idle
+      effects: []
+
+# ── World ──────────────────────────────────────────────────────
+world:
+  win_conditions:
+    - "player.ryo >= 100"
+  loss_conditions:
+    - "player.hp <= 0"
+
+# ── Input Bindings ─────────────────────────────────────────────
+input:
+  bindings:
+    # Movement
+    - { keys: [UP,    w, k], action: move_n }
+    - { keys: [DOWN,  s, j], action: move_s }
+    - { keys: [LEFT,  a, h], action: move_w }
+    - { keys: [RIGHT, d, l], action: move_e }
+    # Ninja actions
+    - { key: "q",     action: drink_sake }
+    - { key: "e",     action: eat_onigiri }
+    - { key: "f",     action: loose_arrow }
+    - { key: "o",     action: open_chest }
+    - { key: "SPACE", action: interact }
+    - { key: ".",     action: wait, label: "Wait" }
+    # Display toggle
+    - { key: "TAB",   action: toggle_display }
+    # Meta
+    - { key: "?",     action: open_help, context: flow }
+    - { key: "ESC",   action: cancel,    context: flow }
+  help:
+    title: "Moonless Castle — Shinobi's Commands"
+    sections:
+      - { header: "Move",     actions: [move_n, move_s, move_e, move_w] }
+      - { header: "Combat",   actions: [loose_arrow] }
+      - { header: "Survive",  actions: [drink_sake, eat_onigiri] }
+      - { header: "Explore",  actions: [open_chest, interact, wait] }
+      - { header: "System",   actions: [toggle_display, open_help] }
+
+# ── Rendering ──────────────────────────────────────────────────
+rendering:
+  default_display_mode: emoji
+
+  tiles:
+    "#":
+      glyph: "#"
+      emoji: "🪨"
+      color: gray
+    ".":
+      glyph: "."
+      emoji: "·️"
+      color: bright_yellow
+    "~":
+      glyph: "~"
+      emoji: "🌊"
+      color: blue
+    "T":
+      glyph: "T"
+      emoji: "🎋"
+      color: green
+    "=":
+      glyph: "="
+      emoji: "💰"
+      color: bright_yellow
+    "&":
+      glyph: "&"
+      emoji: "🔥"
+      color: bright_red
+    "[":
+      glyph: "["
+      emoji: "🗿"
+      color: bright_magenta
+
+  beings:
+    shinobi:
+      color: bright_white
+    rat:
+      color: bright_black
+    crow:
+      color: bright_black
+    yurei:
+      color: bright_cyan
+    ronin:
+      color: bright_white
+    moat_serpent:
+      color: bright_blue
+    oni:
+      color: bright_magenta
+
+  items:
+    ryo_coin:
+      color: bright_yellow
+    sake:
+      color: bright_yellow
+    katana:
+      color: bright_cyan
+    yumi_bow:
+      color: bright_cyan
+
+  # Shinobi glows red when bleeding out
+  status_rules:
+    - when: "actor.hp < 8"
+      glyph_color: red
+
+  hud:
+    measurements:
+      - hp
+      - { id: max_hp, label: "/" }
+      - attack
+      - defense
+      - ryo
+      - chi
+      - focus
+    message_log_size: 6
