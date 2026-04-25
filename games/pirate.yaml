@@ -1,0 +1,675 @@
+# ─────────────────────────────────────────────────────────────
+# Treasure of the Cursed Cove — a pirate-themed rogue-engine game
+# ─────────────────────────────────────────────────────────────
+# A single-island raid: fight crabs, ghost pirates, and the kraken,
+# loot doubloons, swig grog, and unlock the captain's vault.
+
+meta:
+  id: cursed-cove
+  name: Treasure of the Cursed Cove
+  version: "1.0.0"
+  description: >
+    Yer marooned on a haunted isle with naught but a rusty cutlass.
+    Cleave through the cursed crew, unlock the captain's vault,
+    and seize the legendary doubloon hoard before the Kraken stirs.
+  player_archetype: captain
+
+# ── Measurements ───────────────────────────────────────────────
+measurements:
+  - id: hp
+    label: HP
+    min: 0
+    max: max_hp
+    initial: 25
+  - id: max_hp
+    label: Max HP
+    min: 1
+    initial: 25
+  - id: attack
+    label: ATK
+    min: 0
+    initial: 4
+  - id: defense
+    label: DEF
+    min: 0
+    initial: 1
+  - id: doubloons
+    label: Doubloons
+    min: 0
+    initial: 0
+  - id: powder
+    label: Powder
+    min: 0
+    max: 10
+    initial: 4
+  - id: morale
+    label: Morale
+    min: 0
+    max: 10
+    initial: 5
+  - id: awareness
+    label: Awareness
+    min: 0
+    initial: 0
+
+# ── Beings ─────────────────────────────────────────────────────
+beings:
+  - id: captain
+    label: Captain
+    glyph: "@"
+    emoji: "🥸"
+    color: white
+    measurements:
+      hp: 25
+      max_hp: 25
+      attack: 4
+      defense: 1
+      powder: 4
+    tags: [player]
+
+  - id: crab
+    label: Coral Crab
+    glyph: "c"
+    emoji: "🦀"
+    color: red
+    measurements:
+      hp: 4
+      attack: 2
+      defense: 1
+      awareness: 3
+    tags: [monster, beach]
+
+  - id: parrot
+    label: Cursed Parrot
+    glyph: "p"
+    emoji: "🦜"
+    color: green
+    measurements:
+      hp: 3
+      attack: 1
+      defense: 0
+      awareness: 5
+    tags: [monster, jungle]
+
+  - id: ghost_pirate
+    label: Ghost Pirate
+    glyph: "g"
+    emoji: "👻"
+    color: cyan
+    measurements:
+      hp: 8
+      attack: 4
+      defense: 1
+      awareness: 4
+    tags: [monster, undead]
+
+  - id: skeleton_swab
+    label: Skeleton Swab
+    glyph: "s"
+    emoji: "💀"
+    color: white
+    measurements:
+      hp: 6
+      attack: 3
+      defense: 2
+      awareness: 4
+    tags: [monster, undead]
+
+  - id: shark
+    label: Reef Shark
+    glyph: "S"
+    emoji: "🦈"
+    color: blue
+    measurements:
+      hp: 12
+      attack: 5
+      defense: 2
+      awareness: 6
+    tags: [monster, sea]
+
+  - id: kraken
+    label: The Kraken
+    glyph: "K"
+    emoji: "🐙"
+    color: magenta
+    measurements:
+      hp: 30
+      attack: 7
+      defense: 3
+      awareness: 8
+    tags: [monster, boss, sea]
+
+# ── Items ──────────────────────────────────────────────────────
+items:
+  - id: cutlass
+    label: Cutlass
+    glyph: "/"
+    emoji: "⚔️"
+    color: cyan
+    kind: equipment
+    properties:
+      slot: weapon
+      stat: attack
+      bonus: 3
+    tags: [equipment, weapon]
+
+  - id: flintlock
+    label: Flintlock Pistol
+    glyph: "{"
+    emoji: "🔫"
+    color: bright_cyan
+    kind: equipment
+    properties:
+      slot: weapon
+      stat: attack
+      bonus: 5
+    tags: [equipment, weapon, ranged]
+
+  - id: tricorn
+    label: Tricorn Hat
+    glyph: "^"
+    emoji: "🎩"
+    color: gray
+    kind: equipment
+    properties:
+      slot: helmet
+      stat: defense
+      bonus: 1
+    tags: [equipment, armor]
+
+  - id: buckler
+    label: Buckler
+    glyph: ")"
+    emoji: "🛡"
+    color: gray
+    kind: equipment
+    properties:
+      slot: shield
+      stat: defense
+      bonus: 2
+    tags: [equipment, armor]
+
+  - id: grog
+    label: Bottle o' Grog
+    glyph: "!"
+    emoji: "🍾"
+    color: yellow
+    kind: consumable
+    tags: [consumable, drink]
+
+  - id: hardtack
+    label: Hardtack
+    glyph: "%"
+    emoji: "🍞"
+    color: bright_yellow
+    kind: consumable
+    tags: [consumable, food]
+
+  - id: doubloon
+    label: Doubloon
+    glyph: "$"
+    emoji: "🪙"
+    color: yellow
+    kind: currency
+    tags: [currency]
+
+  - id: chest
+    label: Treasure Chest
+    glyph: "="
+    emoji: "💰"
+    color: bright_yellow
+    kind: container
+    tags: [treasure]
+
+  - id: brass_key
+    label: Brass Key
+    glyph: "k"
+    emoji: "🗝"
+    color: yellow
+    kind: consumable
+    tags: [key]
+
+  - id: spyglass
+    label: Spyglass
+    glyph: "?"
+    emoji: "🔭"
+    color: bright_cyan
+    kind: consumable
+    tags: [tool]
+
+# ── Map ────────────────────────────────────────────────────────
+# A single haunted isle laid out in three zones, south to north:
+#   • South beach (rows 17-22): player spawn, a broken shipwreck
+#     (stone ribs `#`) with a chest inside, scuttling crabs, a reef
+#     shark patrolling a tide pool and the eastern inlet.
+#   • Jungle (rows 8-16): a switchback trail through dense palm bands
+#     (T blocks movement), two bonfire camps (&), a cursed parrot or
+#     two, a ghost patrol, a skeleton swab on the trail, and a stashed
+#     cutlass off the path.
+#   • North complex (rows 1-7): two structures.
+#       - Captain's Vault (NW, cols 4-36): a walled hall split into
+#         three rooms — a flooded Kraken chamber (cols 5-11, water `~`
+#         and a dry ledge), a middle corridor with tricorn/buckler/
+#         flintlock/grog, and an east hoard room with chests and gold.
+#         Entered via the locked door `D` on the south wall.
+#       - Ruined Fort (NE, cols 40-52): crumbled walls with rubble
+#         pillars, a stone idol (shrine `[`), the brass key guarded by
+#         two ghosts and a skeleton, and a chest. South wall has two
+#         broken gaps opening into the jungle.
+# Sea (~) is impassable; sand/floor (.) walkable; jungle (T) blocks;
+# walls (#) block; the locked door (D) opens only with a brass key.
+map:
+  width: 58
+  height: 24
+  tiles:
+    - "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    - "~~~~#################################~~~####.########~~~~~"
+    - "~~~~#~~~~~~~#..^............#...=...#~~~#....g...=..#~~~~~"
+    - "~~~~#~~~..~~#.........).....#.....$.#~~~#.g#...[....#~~~~~"
+    - "~~~~#~~~K.~~#.......$.........$.....#~~~#.......#...#~~~~~"
+    - "~~~~#~~..........{..........#....=..#~~~#...k.....s.#~~~~~"
+    - "~~~~#.......#............!..#..$....#~~~#....#..$...#~~~~~"
+    - "~~~~################D################~~~######.##.###~~~~~"
+    - "~~~...TTT.....TT......TT......TT...TTT......T..........~~~"
+    - "~~~..T..T......T..TT&!.....T......T........TT?....T....~~~"
+    - "~~~.T....TT....T.....%....TT......T...T=..........TT...~~~"
+    - "~~~....TT...p....TT...TT...T.....T......T.p...TT...T...~~~"
+    - "~~~..T.......TT........T.......TT...T.......T.....T....~~~"
+    - "~~~.T.....T$.......TT.....g.T......&.T...TT.....T......~~~"
+    - "~~~...T.......TT.!....T......TT..s....TT......T......T.~~~"
+    - "~~~..T...T........T.....T/.......T......TT......%..T...~~~"
+    - "~~~....TT......T.......T......$T.....T......T....TT....~~~"
+    - "~~~..##..##.......c...................%................~~~"
+    - "~~~.#....!.#................................c.....?....~~~"
+    - "~~~.#...=..#..@...............$........................~~~"
+    - "~~~.#.$....#........c..............c..........$........~~~"
+    - "~~~..##..##................c.....~S.......S............~~~"
+    - "~~~..............................~~.....c..............~~~"
+    - "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+
+# ── Tile definitions ───────────────────────────────────────────
+# Map characters above that aren't standard `#`/`.`/`@`/`$`/`!` need
+# kinds and (for interactive tiles) on_interact handlers.
+tiles:
+  "~":
+    kind: sea
+    blocks_move: true
+  "T":
+    kind: jungle
+    blocks_move: true
+  "D":
+    kind: door_locked
+    glyph: "+"
+    color: yellow
+    on_interact:
+      - type: message
+        when: 'not has_item("brass_key")'
+        text: "The vault door is iron-bound. Ye need a brass key."
+      - type: transform_tile
+        when: 'has_item("brass_key")'
+        char: "'"
+      - type: message
+        when: 'has_item("brass_key")'
+        text: "The brass key turns. The vault swings open with a groan."
+      - type: consume
+        when: 'has_item("brass_key")'
+        item: brass_key
+  "+":
+    kind: door_locked
+    color: yellow
+  "'":
+    kind: door_open
+    glyph: "'"
+    color: brown
+  "=":
+    kind: container
+    glyph: "="
+    color: bright_yellow
+  "&":
+    kind: bonfire
+    glyph: "&"
+    color: bright_red
+    on_interact:
+      - type: apply
+        target: actor
+        measurement: morale
+        delta: 2
+      - type: message
+        text: "You warm yer hands at the bonfire. Spirits lift!"
+  "[":
+    kind: shrine
+    glyph: "["
+    color: bright_magenta
+    on_interact:
+      - type: message
+        when: 'actor.doubloons < 5'
+        text: "The shrine demands an offering of 5 doubloons."
+      - type: apply
+        when: 'actor.doubloons >= 5'
+        target: actor
+        measurement: doubloons
+        delta: -5
+      - type: apply
+        when: 'actor.doubloons >= 5'
+        target: actor
+        measurement: max_hp
+        delta: 3
+      - type: set
+        when: 'actor.doubloons >= 5'
+        target: actor
+        measurement: hp
+        value: "actor.max_hp"
+      - type: message
+        when: 'actor.doubloons >= 5'
+        text: "The idol drinks yer gold. +3 max HP, fully patched up."
+
+# ── Actions ────────────────────────────────────────────────────
+actions:
+  player:
+    # Generic move — bump-attack, walk, auto-pickup.
+    - id: move
+      trigger: move
+      requires:
+        - "walkable(actor.x + input.dx, actor.y + input.dy)"
+      effects:
+        # Bump-attack
+        - type: find_target
+          x: "actor.x + input.dx"
+          y: "actor.y + input.dy"
+          kind: being
+        - type: apply
+          when: "target_found"
+          target: target
+          measurement: hp
+          delta: "-(max(1, actor.attack + actor.equip_attack - target.defense + random(-1, 1)))"
+        - type: message
+          when: "target_found"
+          text: "Ye slash the {target.label} for {damage} damage!"
+        - type: message
+          when: "target_found and target.hp <= 0"
+          text: "The {target.label} crumples to the sand."
+        - type: apply
+          when: "target_found and target.hp <= 0"
+          target: actor
+          measurement: doubloons
+          delta: "random(1, 3)"
+        - type: remove
+          when: "target_found and target.hp <= 0"
+
+        # Walk (no monster at target)
+        - type: move
+          when: "not target_found"
+          dir: "input.dir"
+
+        # Auto-pickup at new tile
+        - type: find_target
+          when: "not target_found and result.moved"
+          x: "actor.x"
+          y: "actor.y"
+          kind: item
+        # Doubloons → currency
+        - type: apply
+          when: "target_found and target.id == 'doubloon'"
+          target: actor
+          measurement: doubloons
+          delta: 5
+        - type: message
+          when: "target_found and target.id == 'doubloon'"
+          text: "Ye scoop up 5 doubloons. Arrr!"
+        - type: remove
+          when: "target_found and target.id == 'doubloon'"
+        # Grog → inventory
+        - type: message
+          when: "target_found and target.id == 'grog'"
+          text: "Ye stash a bottle o' grog."
+        - type: pickup
+          when: "target_found and target.id == 'grog'"
+        # Hardtack → inventory
+        - type: message
+          when: "target_found and target.id == 'hardtack'"
+          text: "Ye pocket some hardtack."
+        - type: pickup
+          when: "target_found and target.id == 'hardtack'"
+        # Brass key → inventory
+        - type: message
+          when: "target_found and target.id == 'brass_key'"
+          text: "A brass key! It hums faintly."
+        - type: pickup
+          when: "target_found and target.id == 'brass_key'"
+        # Equipment → auto-equip if upgrade
+        - type: message
+          when: "target_found and target.itemKind == 'equipment' and target.properties.bonus > slot_bonus(target.properties.slot)"
+          text: "Ye don a {target.label} (+{target.properties.bonus} {target.properties.stat})."
+        - type: equip
+          when: "target_found and target.itemKind == 'equipment' and target.properties.bonus > slot_bonus(target.properties.slot)"
+          from_ground: true
+
+    # Quaff grog: heal HP and lift morale
+    - id: quaff_grog
+      trigger: quaff_grog
+      label: "Quaff grog"
+      summary: "Swig a bottle o' grog (heals HP, lifts morale)"
+      requires:
+        - "has_item('grog')"
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: 8
+        - type: apply
+          target: actor
+          measurement: morale
+          delta: 1
+        - type: message
+          text: "Ye glug the grog. {delta} HP restored — yo ho ho!"
+        - type: consume
+          target: actor
+          item: grog
+
+    # Eat hardtack: small heal
+    - id: eat_hardtack
+      trigger: eat_hardtack
+      label: "Eat hardtack"
+      summary: "Gnaw on hardtack (small HP recover)"
+      requires:
+        - "actor.hp < actor.max_hp"
+        - "has_item('hardtack')"
+      effects:
+        - type: apply
+          target: actor
+          measurement: hp
+          delta: 4
+        - type: message
+          text: "Ye chew the salty biscuit. +{delta} HP."
+        - type: consume
+          target: actor
+          item: hardtack
+
+    # Fire pistol (ranged): consumes powder
+    - id: fire_pistol
+      trigger: fire_pistol
+      label: "Fire pistol"
+      summary: "Take aim and fire (costs 1 powder)"
+      requires:
+        - "actor.powder >= 1"
+        - "actor.equip_attack >= 5"
+      flow:
+        - type: pick_tile
+          range: 6
+          filter: "line_of_sight($origin, tile)"
+          bind: target_tile
+      effects:
+        - type: apply
+          target: actor
+          measurement: powder
+          delta: -1
+        - type: apply_area
+          origin: "$target_tile"
+          radius: 0
+          measurement: hp
+          delta: "-(8 + random(-1, 2))"
+          exclude_actor: true
+        - type: message
+          text: "BOOM! The pistol cracks across the cove."
+
+    # Open the treasure chest tile (=)
+    - id: open_chest
+      trigger: open_chest
+      label: "Open chest"
+      summary: "Pry open a treasure chest at yer feet"
+      requires:
+        - "tile_at(actor.x, actor.y) == '='"
+      effects:
+        - type: apply
+          target: actor
+          measurement: doubloons
+          delta: "random(20, 50)"
+        - type: message
+          text: "The chest spills open — {delta} doubloons!"
+        - type: transform_tile
+          char: "."
+
+    # Wait — pass turn
+    - id: wait
+      trigger: wait
+      label: "Wait"
+      summary: "Stand watch a turn"
+      effects:
+        - type: message
+          text: "Ye stand watch. The waves roll on."
+
+  # ── Monster AI ─────────────────────────────────────────────
+  ai:
+    # Adjacent → attack
+    - id: ai_attack
+      condition: "manhattan(actor.x, actor.y, target.x, target.y) <= 1"
+      effects:
+        - type: apply
+          target: target
+          measurement: hp
+          delta: "-(max(1, actor.attack - (target.defense + target.equip_defense) + random(-1, 1)))"
+        - type: message
+          text: "The {actor.label} strikes ye for {damage} damage!"
+
+    # In sight → chase
+    - id: ai_chase
+      condition: "manhattan(actor.x, actor.y, target.x, target.y) <= actor.awareness and los(actor.x, actor.y, target.x, target.y)"
+      effects:
+        - type: move
+          dir: "dir_toward(actor.x, actor.y, target.x, target.y)"
+
+    # Idle fallback
+    - id: ai_idle
+      effects: []
+
+# ── World ──────────────────────────────────────────────────────
+world:
+  win_conditions:
+    - "player.doubloons >= 100"
+  loss_conditions:
+    - "player.hp <= 0"
+
+# ── Input Bindings ─────────────────────────────────────────────
+input:
+  bindings:
+    # Movement
+    - { keys: [UP,    w, k], action: move_n }
+    - { keys: [DOWN,  s, j], action: move_s }
+    - { keys: [LEFT,  a, h], action: move_w }
+    - { keys: [RIGHT, d, l], action: move_e }
+    # Pirate actions
+    - { key: "q",     action: quaff_grog }
+    - { key: "e",     action: eat_hardtack }
+    - { key: "f",     action: fire_pistol }
+    - { key: "o",     action: open_chest }
+    - { key: "SPACE", action: interact }
+    - { key: ".",     action: wait, label: "Wait" }
+    # Display toggle
+    - { key: "TAB",   action: toggle_display }
+    # Meta
+    - { key: "?",     action: open_help, context: flow }
+    - { key: "ESC",   action: cancel,    context: flow }
+  help:
+    title: "Cursed Cove — Captain's Commands"
+    sections:
+      - { header: "Move",     actions: [move_n, move_s, move_e, move_w] }
+      - { header: "Combat",   actions: [fire_pistol] }
+      - { header: "Survive",  actions: [quaff_grog, eat_hardtack] }
+      - { header: "Explore",  actions: [open_chest, interact, wait] }
+      - { header: "System",   actions: [toggle_display, open_help] }
+
+# ── Rendering ──────────────────────────────────────────────────
+rendering:
+  default_display_mode: emoji
+
+  tiles:
+    "#":
+      glyph: "#"
+      emoji: "🪨"
+      color: gray
+    ".":
+      glyph: "."
+      emoji: "·️"
+      color: bright_yellow
+    "~":
+      glyph: "~"
+      emoji: "🌊"
+      color: blue
+    "T":
+      glyph: "T"
+      emoji: "🌴"
+      color: green
+    "=":
+      glyph: "="
+      emoji: "💰"
+      color: bright_yellow
+    "&":
+      glyph: "&"
+      emoji: "🔥"
+      color: bright_red
+    "[":
+      glyph: "["
+      emoji: "🗿"
+      color: bright_magenta
+
+  beings:
+    captain:
+      color: bright_white
+    crab:
+      color: bright_red
+    parrot:
+      color: bright_green
+    ghost_pirate:
+      color: bright_cyan
+    skeleton_swab:
+      color: bright_white
+    shark:
+      color: bright_blue
+    kraken:
+      color: bright_magenta
+
+  items:
+    doubloon:
+      color: bright_yellow
+    grog:
+      color: bright_yellow
+    cutlass:
+      color: bright_cyan
+    flintlock:
+      color: bright_cyan
+
+  # Captain glows red when bleeding out
+  status_rules:
+    - when: "actor.hp < 8"
+      glyph_color: red
+
+  hud:
+    measurements:
+      - hp
+      - { id: max_hp, label: "/" }
+      - attack
+      - defense
+      - doubloons
+      - powder
+      - morale
+    message_log_size: 6
