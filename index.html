@@ -835,6 +835,14 @@
         touchActive = false;
       });
 
+      // Tap-to-dismiss the help overlay — without this, mobile users get
+      // stuck since the overlay covers both the canvas and the '?' button.
+      helpEl.addEventListener('click', (event) => {
+        if (!session || !session.getHelpOpen()) return;
+        event.preventDefault();
+        dispatchKeyAndRedraw('?');
+      });
+
       window.addEventListener('resize', updateBodyPadding);
     }
 
