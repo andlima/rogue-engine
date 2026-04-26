@@ -34,8 +34,8 @@ const CANVAS_COLORS = {
 
 const DEFAULT_FG = '#cccccc';
 const DEFAULT_BG = '#0a0a0a';
-const DEFAULT_FONT_SIZE = 20;
-const DEFAULT_TILE_SIZE = 28;
+const DEFAULT_FONT_SIZE = 30;
+const DEFAULT_TILE_SIZE = 42;
 
 export class CanvasRenderer {
   /**
