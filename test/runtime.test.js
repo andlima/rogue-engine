@@ -101,6 +101,14 @@ describe('createState', () => {
     assert.deepEqual(entityOrder, placementOrder);
     assert.deepEqual(entityOrder, ['crab', 'coin', 'shark']);
   });
+
+  it('initializes state.map from a static definition.map', () => {
+    const state = makeState();
+    assert.ok(state.map, 'state.map is populated for static-map games');
+    assert.equal(state.map.width, 5);
+    assert.equal(state.map.height, 5);
+    assert.equal(state.map.tiles[2][2], '.');
+  });
 });
 
 describe('dispatch - move', () => {

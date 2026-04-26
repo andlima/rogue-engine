@@ -99,7 +99,7 @@ export function createState(definition, seed) {
     entities,
     messages: [],
     rng,
-    map: generatedMap,
+    map: generatedMap ?? map,
     terminal: null,
     terminalReason: null,
     flowState: null,
