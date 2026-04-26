@@ -3,7 +3,12 @@
  *
  * Generic: any roguelike can use this for visibility computation.
  * Returns a Map of "x,y" → brightness (0.45–1.0).
+ *
+ * Ported from silly-game's src/fov.js to keep parity with the upstream
+ * reference implementation.
  */
+
+export const TORCH_RADIUS = 6;
 
 /**
  * Compute visible tiles from (ox, oy) within the given radius.
@@ -11,46 +16,21 @@
  * @param {{ tiles: string[][], width: number, height: number }} map
  * @param {number} ox — origin x
  * @param {number} oy — origin y
- * @param {number} radius — view radius (default 6)
+ * @param {number} radius — view radius (default TORCH_RADIUS)
  * @returns {Map<string, number>} key "x,y" → brightness (0.45–1.0)
  */
-export function computeFOV(map, ox, oy, radius = 6) {
+export function computeFOV(map, ox, oy, radius = TORCH_RADIUS) {
   const visible = new Map();
+
+  // Origin is always visible at full brightness
   visible.set(`${ox},${oy}`, 1.0);
 
   for (let octant = 0; octant < 8; octant++) {
-    castOctant(map, ox, oy, radius, octant, visible);
+    castOctant(map, ox, oy, radius, octant, 1, 1.0, 0.0, visible);
   }
 
   return visible;
 }
-
-/**
- * Check line-of-sight between two points using Bresenham's line.
- * Returns true if no opaque tile blocks the path.
- */
-export function hasLOS(map, x1, y1, x2, y2) {
-  let dx = Math.abs(x2 - x1);
-  let dy = Math.abs(y2 - y1);
-  const sx = x1 < x2 ? 1 : -1;
-  const sy = y1 < y2 ? 1 : -1;
-  let err = dx - dy;
-  let cx = x1;
-  let cy = y1;
-
-  while (cx !== x2 || cy !== y2) {
-    const e2 = 2 * err;
-    if (e2 > -dy) { err -= dy; cx += sx; }
-    if (e2 < dx) { err += dx; cy += sy; }
-    // Check intermediate tiles (not start or end)
-    if ((cx !== x2 || cy !== y2) && isOpaque(map, cx, cy)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// ── Internal helpers ──────────────────────────────────────────────────────
 
 function brightness(distance, radius) {
   const b = 1.0 - (distance / radius) * 0.55;
@@ -62,71 +42,65 @@ function isOpaque(map, x, y) {
   return map.tiles[y][x] === '#';
 }
 
-/**
- * Octant transform: maps (row, col) in abstract octant space to (x, y) in map space.
- */
-function transform(ox, oy, row, col, octant) {
+// Transform octant-local (row, col) to map coordinates
+function transformOctant(ox, oy, octant, row, col) {
   switch (octant) {
-    case 0: return [ox + col, oy - row];
-    case 1: return [ox + row, oy - col];
-    case 2: return [ox + row, oy + col];
-    case 3: return [ox + col, oy + row];
-    case 4: return [ox - col, oy + row];
-    case 5: return [ox - row, oy + col];
-    case 6: return [ox - row, oy - col];
-    case 7: return [ox - col, oy - row];
+    case 0: return { x: ox + col, y: oy - row };
+    case 1: return { x: ox + row, y: oy - col };
+    case 2: return { x: ox + row, y: oy + col };
+    case 3: return { x: ox + col, y: oy + row };
+    case 4: return { x: ox - col, y: oy + row };
+    case 5: return { x: ox - row, y: oy + col };
+    case 6: return { x: ox - row, y: oy - col };
+    case 7: return { x: ox - col, y: oy - row };
   }
 }
 
-function castOctant(map, ox, oy, radius, octant, visible) {
-  // Iterative stack-based approach to avoid deep recursion
-  const stack = [{ row: 1, startSlope: 1.0, endSlope: 0.0 }];
+// Symmetric shadowcasting (Albert Ford's variant).
+// Guarantees: if tile A sees B then B sees A, eliminating artifacts
+// where nearby visible tiles are missed.
+function castOctant(map, ox, oy, radius, octant, row, startSlope, endSlope, visible) {
+  if (startSlope < endSlope) return;
 
-  while (stack.length > 0) {
-    let { row, startSlope, endSlope } = stack.pop();
-    if (startSlope < endSlope) continue;
+  let nextStartSlope = startSlope;
 
-    let nextStartSlope = startSlope;
+  for (let r = row; r <= radius; r++) {
+    let foundWall = false;
 
-    for (let r = row; r <= radius; r++) {
-      let blocked = false;
+    // Scan columns from high slope (startSlope side) to low slope (endSlope side)
+    const maxCol = Math.floor(r * nextStartSlope + 0.5);
+    const minCol = Math.max(0, Math.ceil(r * endSlope - 0.5));
 
-      for (let col = Math.round(r * startSlope); col >= 0; col--) {
-        const leftSlope = (col + 0.5) / (r - 0.5);
-        const rightSlope = (col - 0.5) / (r + 0.5);
+    for (let col = maxCol; col >= minCol; col--) {
+      const { x, y } = transformOctant(ox, oy, octant, r, col);
+      const dist = Math.sqrt((x - ox) * (x - ox) + (y - oy) * (y - oy));
 
-        if (rightSlope > startSlope) continue;
-        if (leftSlope < endSlope) break;
-
-        const [tx, ty] = transform(ox, oy, r, col, octant);
-        const dist = Math.sqrt(col * col + r * r);
-
-        if (dist <= radius) {
-          const b = brightness(dist, radius);
-          const key = `${tx},${ty}`;
-          const existing = visible.get(key);
-          if (existing === undefined || b > existing) {
-            visible.set(key, b);
-          }
-        }
-
-        const opaque = isOpaque(map, tx, ty);
-
-        if (blocked) {
-          if (opaque) {
-            nextStartSlope = (col - 0.5) / (r + 0.5);
-          } else {
-            blocked = false;
-            startSlope = nextStartSlope;
-          }
-        } else if (opaque && r < radius) {
-          blocked = true;
-          stack.push({ row: r + 1, startSlope: nextStartSlope, endSlope: (col - 0.5) / (r + 0.5) });
-          nextStartSlope = (col - 0.5) / (r + 0.5);
+      if (dist <= radius) {
+        const key = `${x},${y}`;
+        const b = brightness(dist, radius);
+        // Keep the brighter value if seen from multiple octants
+        if (!visible.has(key) || visible.get(key) < b) {
+          visible.set(key, b);
         }
       }
 
-      if (blocked) break;
+      const opaque = isOpaque(map, x, y);
+
+      if (opaque) {
+        if (!foundWall) {
+          // Recurse for the open region above this wall
+          const wallSlope = (col + 0.5) / r;
+          castOctant(map, ox, oy, radius, octant, r + 1, nextStartSlope, wallSlope, visible);
+          foundWall = true;
+        }
+        // Next open region starts below this wall
+        nextStartSlope = (col - 0.5) / r;
+      } else {
+        foundWall = false;
+      }
     }
+
+    // If the last cell in the row was a wall, the remaining arc is fully blocked
+    if (foundWall) return;
   }
 }
