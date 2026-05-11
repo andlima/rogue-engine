@@ -30,3 +30,6 @@ allowed = ["claude"]
 # name = "test"
 # command = "pytest"
 # parallel = true
+
+[readiness]
+require_forge_checks = false
